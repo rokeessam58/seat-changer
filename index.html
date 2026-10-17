@@ -4,9 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>우리반 자리 바꾸기</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -49,7 +47,7 @@
           <li><b>학생명단</b> : 이름 / 성별(남·여). 번호는 위에서부터 1, 2, 3… 자동으로 매겨지며, 다른 시트에서 학생을 적을 때는 이 번호나 이름 중 편한 쪽을 쓰세요.</li>
           <li><b>좌석배열</b> : 위쪽 줄이 <u>교탁에 가까운 앞줄</u>, 왼쪽이 <u>학생이 앉아서 본 왼쪽</u>. 책상이 있는 칸은 1, 빈 칸·통로는 0</li>
           <li><b>모둠</b> : 좌석배열과 같은 크기의 표에 모둠 번호를 적습니다 (모둠 배치를 쓸 때만, 없는 칸은 0)</li>
-          <li><b>붙이기 / 떼기</b> : 두 학생 (떼기는 최소 거리 칸 수, 비우면 기본값). 모둠 배치에서는 붙이기 = 같은 모둠, 떼기 = 다른 모둠</li>
+          <li><b>붙이기 / 떼기</b> : 두 학생 (붙이기는 방식 좌우/주변, 떼기는 최소 반경 칸 수 — 비우면 2칸). 모둠 배치에서는 붙이기 = 같은 모둠, 떼기 = 다른 모둠</li>
           <li><b>고정석</b> : 학생 / 행 / 열 — 통로를 뺀 번호입니다 (행 1 = 맨 앞줄, 열 1 = 맨 왼쪽)</li>
           <li><b>범위</b> : 학생 / 시작행 / 끝행 / 시작열 / 끝열 — 같은 학생을 여러 줄 적으면 합쳐서 적용</li>
           <li><b>이전짝</b> : 예전에 짝(또는 같은 모둠)이었던 두 학생 — 앱에서 확정할 때마다 자동으로 쌓입니다</li>
@@ -57,7 +55,7 @@
       </details>
     </div>
 
-    <div class="grid2">
+    <div class="grid12">
       <div class="card">
         <h2>학생 명단 <span id="studentCount" class="count"></span></h2>
         <div class="row wrap">
@@ -76,15 +74,15 @@
         <h2>좌석 배열</h2>
         <p class="hint">칸을 누르면 책상 있음/없음(통로)이 바뀝니다. 책상이 하나도 없는 줄·열은 <b>통로</b>로 표시되고 번호에서 빠집니다.</p>
         <div class="row wrap">
-          <label>줄 수 <input id="layRows" type="number" min="1" max="15" class="num"></label>
-          <label>열 수 <input id="layCols" type="number" min="1" max="15" class="num"></label>
+          <span class="dim-in"><input id="layRows" type="number" min="1" max="15" class="num" aria-label="행 수"> 행</span>
+          <span class="dim-in dim-gap"><input id="layCols" type="number" min="1" max="15" class="num" aria-label="열 수"> 열</span>
           <button class="btn small" data-act="lay-reset">모두 책상으로</button>
           <span id="seatSummary" class="count"></span>
         </div>
         <div class="row wrap" style="margin-top:8px">
           <div class="seg left" id="editSeg">
-            <button data-edit="seat" class="on">책상 편집</button>
-            <button data-edit="group">모둠 편집</button>
+            <button data-edit="seat" class="on">책상 편집 모드</button>
+            <button data-edit="group">모둠 편집 모드</button>
           </div>
         </div>
         <div id="groupTools" class="row wrap grp-tools" hidden>
@@ -98,7 +96,6 @@
           <p class="hint small-hint" style="flex-basis:100%;margin:0">칸을 누르면 그 모둠 번호로 칠해지고, 같은 번호 칸을 다시 누르면 해제됩니다.</p>
         </div>
         <div id="layoutEditor" class="layout-editor"></div>
-        <p class="hint small-hint">화면 위쪽이 교탁(앞)이며, 학생이 앉은 방향 기준입니다.</p>
       </div>
     </div>
 
@@ -111,13 +108,6 @@
             <option value="group">모둠 배치</option>
           </select>
         </label>
-        <label>붙이기 방식
-          <select id="optPairMode">
-            <option value="side">좌우로 나란히</option>
-            <option value="around">주변 8칸 안(앞뒤·대각선 포함)</option>
-          </select>
-        </label>
-        <label>떼기 기본 거리 <input id="optSepDist" type="number" min="1" max="15" step="0.5" class="num"> 칸 이상</label>
         <label class="chk"><input id="optMix" type="checkbox"> 남녀 섞어 앉히기 (모둠은 성비 균형)</label>
         <label class="chk"><input id="optAvoid" type="checkbox"> 직전 확정 자리와 같은 자리 피하기</label>
         <label class="chk"><input id="optPast" type="checkbox"> 이전에 짝이었던 학생과 다시 짝 되지 않게</label>
@@ -130,20 +120,25 @@
     <div class="grid2">
       <div class="card">
         <h2>붙여 앉힐 학생</h2>
-        <div class="row wrap">
+        <div class="pair-grid">
           <select id="pairA"></select><span>와(과)</span><select id="pairB"></select>
-          <button class="btn small primary" data-act="add-pair">추가</button>
+          <label class="pg-mode">방식
+            <select id="optPairMode">
+              <option value="side">좌우로 나란히</option>
+              <option value="around">주변 8칸 안(앞뒤·대각선 포함)</option>
+            </select>
+          </label>
+          <button class="btn small primary pg-add" data-act="add-pair">추가</button>
         </div>
         <ul id="pairList" class="chips"></ul>
       </div>
       <div class="card">
-        <h2>떼어 앉힐 학생</h2>
-        <div class="row wrap">
+        <h2>떼어 앉힐 학생 <button class="help-btn" data-act="sep-help" aria-label="떼어 앉히기 설명 보기" title="설명 보기">?</button></h2>
+        <div class="pair-grid">
           <select id="sepA"></select><span>와(과)</span><select id="sepB"></select>
-          <label>최소 <input id="sepD" type="number" min="1" max="15" step="0.5" class="num"> 칸</label>
-          <button class="btn small primary" data-act="add-sep">추가</button>
+          <label class="pg-mode nat">최소 반경 <select id="sepD"></select> 칸</label>
+          <button class="btn small primary pg-add" data-act="add-sep">추가</button>
         </div>
-        <p class="hint small-hint">거리는 책상 한 칸 = 1로 잰 직선거리입니다. 2칸 → 바로 옆·앞뒤·대각선은 안 되고 한 칸 건너 앉는 것은 허용, 3칸 → 두 칸 이상 떨어져야 합니다. (모둠 배치에서는 거리 대신 "다른 모둠"으로 적용)</p>
         <ul id="sepList" class="chips"></ul>
       </div>
       <div class="card">
@@ -178,14 +173,14 @@
   <section id="tab-shuffle" class="panel">
     <div class="toolbar no-print">
       <div id="slotBar" class="slotbar"></div>
-      <label class="chk"><input id="showAll" type="checkbox"> 5개 한 화면에 모두 보기</label>
+      <label class="chk"><input id="showAll" type="checkbox"> 한 번에 보기</label>
       <div class="seg" id="viewSeg">
         <button data-view="student">학생용 보기</button>
         <button data-view="teacher">교사용 보기</button>
       </div>
     </div>
     <div class="toolbar no-print">
-      <button class="btn primary big" data-act="shuffle">🎲 자리 배치!</button>
+      <button class="btn primary" data-act="shuffle">🎲 자리 배치!</button>
       <button class="btn" data-act="fill-all">빈 슬롯 모두 채우기</button>
       <button class="btn" data-act="clear-slot">이 슬롯 비우기</button>
       <button class="btn good" data-act="confirm-slot">이 자리로 확정</button>
@@ -226,6 +221,13 @@
   <h3 id="modalTitle"></h3>
   <p id="modalMsg"></p>
   <div id="modalBtns" class="row end"></div>
+</dialog>
+
+<!-- 도움말 모달: 오른쪽 위 X로만 닫힘 -->
+<dialog id="helpModal" class="modal help">
+  <button class="x-close" data-act="help-close" aria-label="닫기">✕</button>
+  <h3 id="helpTitle"></h3>
+  <div id="helpBody"></div>
 </dialog>
 
 <!-- 배치 연출 -->
