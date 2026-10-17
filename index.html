@@ -152,8 +152,7 @@
         <ul id="fixedList" class="chips"></ul>
       </div>
       <div class="card">
-        <h2>범위 제한 학생</h2>
-        <p class="hint small-hint">해당 학생은 지정한 구역 안에서만 섞입니다. (예: 시력 때문에 앞 두 줄)</p>
+        <h2>범위 제한 학생 <button class="help-btn" data-act="range-help" aria-label="범위 제한 설명 보기" title="설명 보기">?</button></h2>
         <div class="row wrap">
           <select id="rngS"></select>
           <button class="btn small" data-act="pick-range">구역 선택…</button>
@@ -212,6 +211,7 @@
   <div id="pickerGrid" class="picker-grid"></div>
   <div class="row end">
     <button class="btn" data-act="picker-cancel">취소</button>
+    <button class="btn danger" id="pickerReset" data-act="picker-reset">초기화</button>
     <button class="btn primary" data-act="picker-ok">선택 완료</button>
   </div>
 </dialog>
@@ -225,7 +225,7 @@
 
 <!-- 도움말 모달: 오른쪽 위 X로만 닫힘 -->
 <dialog id="helpModal" class="modal help">
-  <button class="x-close" data-act="help-close" aria-label="닫기">✕</button>
+  <button class="x-close" data-act="help-close" aria-label="닫기"></button>
   <h3 id="helpTitle"></h3>
   <div id="helpBody"></div>
 </dialog>

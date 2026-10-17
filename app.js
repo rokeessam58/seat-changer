@@ -65,6 +65,16 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const byId = id => state.students.find(s => s.id === id);
 const label = s => s ? (s.name || `${s.no}번`) : '(삭제됨)';
+// 조사 자동 선택: josa('철수', '이/가') → '철수가', josa('영희', '이/가') → '영희가', josa('민준', '이/가') → '민준이'
+// pair는 '받침 있을 때/받침 없을 때' 순서: 이/가, 은/는, 을/를, 과/와, 으로/로 (으로/로는 받침 없음·ㄹ받침이면 '로')
+function josa(word, pair) {
+  const [withB, noB] = pair.split('/'), w = String(word ?? '').trim(), last = w.slice(-1), code = last.charCodeAt(0);
+  let has = false, rieul = false;
+  if (code >= 0xAC00 && code <= 0xD7A3) { const j = (code - 0xAC00) % 28; has = j !== 0; rieul = j === 8; }
+  else if (/[0-9]/.test(last)) { has = '013678'.includes(last); rieul = '178'.includes(last); }
+  const useB = pair === '으로/로' ? has && !rieul : has;
+  return w + (useB ? withB : noB);
+}
 const fullLabel = s => s ? `${s.no}번 ${s.name || ''}`.trim() : '(삭제됨)';
 const isOff = (r, c) => state.layout.disabled.includes(r + ',' + c);
 const seatCount = () => state.layout.rows * state.layout.cols - state.layout.disabled.length;
@@ -196,8 +206,8 @@ function renderLayout() {
 
 // 떼기 반경의 최댓값 = 좌석 배열에서 가장 먼 두 자리 사이의 거리(줄 차이·열 차이 중 큰 값). 최소 2
 function maxSepDist() {
-  const pts = [];
-  for (let r = 0; r < state.layout.rows; r++) for (let c = 0; c < state.layout.cols; c++) if (!isOff(r, c)) pts.push([r, c]);
+  const pts = [], D = dims();   // 통로(책상이 하나도 없는 줄·열)는 칸 수에서 뺀 번호로 계산
+  for (let r = 0; r < state.layout.rows; r++) for (let c = 0; c < state.layout.cols; c++) if (!isOff(r, c)) pts.push([D.rowNo[r], D.colNo[c]]);
   let m = 0;
   for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) m = Math.max(m, Math.max(Math.abs(pts[i][0] - pts[j][0]), Math.abs(pts[i][1] - pts[j][1])));
   return Math.max(2, Math.floor(m + 1e-9));
@@ -220,10 +230,11 @@ function renderOptions() {
   $('#optMix').checked = s.mix; $('#optAvoid').checked = s.avoidPrev; $('#optPast').checked = s.avoidPast; $('#optAnim').checked = s.animation;
   $('#className').value = state.className;
   $('#pastCount').textContent = `기록된 짝 ${state.pairHistory.length}쌍`;
-  $('#optPairMode').disabled = s.mode === 'group';
+  // 모둠 배치에서는 붙이기 방식·떼기 반경이 쓰이지 않으므로 숨기고, 추가 버튼을 학생 선택 줄로 올린다
+  $$('.pair-grid').forEach(g => g.classList.toggle('gm', s.mode === 'group'));
   $('#modeHint').textContent = s.mode === 'group'
     ? '모둠 배치: 좌석 배열의 "모둠 편집 모드"로 만든 모둠 단위로 학생을 나눕니다. 붙이기 = 같은 모둠, 떼기 = 다른 모둠, 이전 짝 = 같은 모둠이었던 학생.'
-    : '일반 자리: 학생을 한 명씩 자리에 배치합니다. 이전 짝 = 바로 옆자리(사이에 통로가 없는 경우)였던 학생.';
+    : '';
 }
 
 const pend = { fixed: null, range: null };
@@ -250,13 +261,16 @@ function miniMap(rg) {
   return h + '</span>';
 }
 
-// 학생 선택 드롭다운 공통 너비: 가장 긴 항목 글씨 너비 + 좌우 여백·테두리·화살표
+// 학생 선택 드롭다운 공통 너비: "99번 가나다라"(두 자리 번호 + 네 글자 이름)가 꽉 차게 들어가는 너비로 고정
+// 실제 드롭다운 한 개를 화면 밖에서 만들어 브라우저가 계산한 자연 너비(글씨 + 여백 + 화살표)를 쓴다
 function updateStudentSelectWidth() {
-  const ref = $('#pairA'), cs = getComputedStyle(ref), ctx = document.createElement('canvas').getContext('2d');
-  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-  const widest = Math.max(0, ...state.students.map(s => ctx.measureText(fullLabel(s)).width));
-  const px = Math.ceil(widest + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 4 + 22);
-  document.documentElement.style.setProperty('--stu-w', Math.max(px, 96) + 'px');
+  const probe = document.createElement('select');
+  probe.style.cssText = 'position:absolute;visibility:hidden;left:-9999px;top:0;width:auto;max-width:none';
+  probe.innerHTML = '<option>99번 가나다라</option>';
+  document.body.appendChild(probe);
+  const px = Math.ceil(probe.getBoundingClientRect().width);
+  probe.remove();
+  document.documentElement.style.setProperty('--stu-w', px + 'px');
 }
 function renderConstraints() {
   refreshSepSelects(); updateStudentSelectWidth();
@@ -267,7 +281,7 @@ function renderConstraints() {
   $('#pairList').innerHTML = state.pairs.length ? state.pairs.map((p, i) =>
     `<li><span class="grow">${esc(label(byId(p.a)))} ↔ ${esc(label(byId(p.b)))}${state.settings.mode === 'group' ? '' : ' · ' + PAIR_LABEL[p.mode || state.settings.pairMode]}</span><button class="x" data-del="pairs:${i}">✕</button></li>`).join('') : empty('지정된 학생 없음');
   $('#sepList').innerHTML = state.seps.length ? state.seps.map((p, i) =>
-    `<li><span class="grow">${esc(label(byId(p.a)))} ↔ ${esc(label(byId(p.b)))} · 반경 ${p.d}칸 이상</span><button class="x" data-del="seps:${i}">✕</button></li>`).join('') : empty('지정된 학생 없음');
+    `<li><span class="grow">${esc(label(byId(p.a)))} ↔ ${esc(label(byId(p.b)))} · ${state.settings.mode === 'group' ? '다른 모둠' : '반경 ' + p.d + '칸 이상'}</span><button class="x" data-del="seps:${i}">✕</button></li>`).join('') : empty('지정된 학생 없음');
   $('#fixedList').innerHTML = state.fixed.length ? state.fixed.map((f, i) =>
     `<li><span class="grow">${esc(label(byId(f.s)))} → ${seatText(f.r, f.c)}</span><button class="x" data-del="fixed:${i}">✕</button></li>`).join('') : empty('지정된 학생 없음');
   $('#rangeList').innerHTML = state.ranges.length ? state.ranges.map((g, i) =>
@@ -301,8 +315,8 @@ function parseGender(v) {
 
 /* ================= 좌석 선택 창 ================= */
 // mode 'cell'  : 한 칸 선택(고정석)
-// mode 'range' : 여러 칸 선택(범위 제한) — 사각형 지정 / 칸 하나씩·드래그 / 프리셋을 자유롭게 섞어 쓸 수 있음
-const pk = { mode: 'cell', sel: null, set: new Set(), tool: 'rect', anchor: null, cb: null, base: '', painting: false, paint: true };
+// mode 'range' : 여러 칸 선택(범위 제한) - 사각형으로 선택 / 한 칸씩 선택을 섞어 쓸 수 있음
+const pk = { mode: 'cell', sel: null, set: new Set(), tool: 'rect', anchor: null, cb: null, base: '' };
 
 function rectKeys(r1, c1, r2, c2) {
   const out = [];
@@ -328,33 +342,21 @@ function normalizeSel(set) {
 }
 
 function openPicker({ title, hint, mode, initial, cb }) {
-  pk.mode = mode; pk.cb = cb; pk.anchor = null; pk.base = hint; pk.tool = 'rect'; pk.painting = false;
+  pk.mode = mode; pk.cb = cb; pk.anchor = null; pk.base = hint; pk.tool = 'rect';
   pk.sel = mode === 'cell' && initial ? { ...initial } : null;
   pk.set = mode === 'range' ? setFromEntry(initial) : new Set();
   $('#pickerTitle').textContent = title;
-  const D = dims(), RR = D.realRows, RC = D.realCols, q = $('#pickerQuick');
+  $('#pickerReset').hidden = mode !== 'range';   // 초기화는 여러 칸을 고르는 범위 선택에서만 사용
+  const q = $('#pickerQuick');
   q.innerHTML = '';
   if (mode === 'range') {
     const tools = document.createElement('div'); tools.className = 'seg left'; tools.id = 'pickerTools';
-    [['rect', '사각형으로 선택'], ['cell', '칸 하나씩 · 드래그']].forEach(([k, t]) => {
+    [['rect', '사각형으로 선택'], ['cell', '한 칸씩 선택']].forEach(([k, t]) => {
       const b = document.createElement('button'); b.textContent = t; b.dataset.tool = k;
       b.onclick = () => { pk.tool = k; pk.anchor = null; drawPicker(); };
       tools.appendChild(b);
     });
     q.appendChild(tools);
-    const nr = RR.length, nc = RC.length, lastR = RR[nr - 1], lastC = RC[nc - 1];
-    const defs = [['전체', RR[0], lastR, RC[0], lastC]];
-    for (const n of [1, 2, 3]) if (n < nr) defs.push([`앞 ${n}줄`, RR[0], RR[n - 1], RC[0], lastC]);
-    for (const n of [1, 2]) if (n < nr) defs.push([`뒤 ${n}줄`, RR[nr - n], lastR, RC[0], lastC]);
-    if (nc > 1) { const h = Math.ceil(nc / 2); defs.push(['왼쪽 절반', RR[0], lastR, RC[0], RC[h - 1]], ['오른쪽 절반', RR[0], lastR, RC[nc - h], lastC]); }
-    defs.forEach(([t, r1, r2, c1, c2]) => {
-      const b = document.createElement('button'); b.className = 'btn small'; b.textContent = '+ ' + t;
-      b.onclick = () => { addRect(r1, c1, r2, c2); pk.anchor = null; drawPicker(); };
-      q.appendChild(b);
-    });
-    const clr = document.createElement('button'); clr.className = 'btn small danger'; clr.textContent = '선택 모두 지우기';
-    clr.onclick = () => { pk.set.clear(); pk.anchor = null; drawPicker(); };
-    q.appendChild(clr);
   }
   drawPicker(); $('#picker').showModal();
 }
@@ -362,7 +364,6 @@ function drawPicker() {
   const { rows, cols } = state.layout, D = dims(), range = pk.mode === 'range';
   const grid = $('#pickerGrid');
   grid.style.gridTemplateColumns = `repeat(${cols},auto)`;
-  grid.classList.toggle('paint', range && pk.tool === 'cell');
   $$('#pickerTools button').forEach(b => b.classList.toggle('on', b.dataset.tool === pk.tool));
   let h = '';
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
@@ -373,32 +374,6 @@ function drawPicker() {
   grid.innerHTML = h;
   $('#pickerHint').textContent = range ? `${pk.base} (선택된 칸: ${pk.set.size}개)` : pk.base;
 }
-// 칸 하나씩·드래그 칠하기 (마우스·터치 공통)
-function paintCell(btn) {
-  if (!btn || btn.classList.contains('offc')) return;
-  const k = btn.dataset.r + ',' + btn.dataset.c;
-  if (pk.paint) pk.set.add(k); else pk.set.delete(k);
-  btn.classList.toggle('sel', pk.paint);
-  $('#pickerHint').textContent = `${pk.base} (선택된 칸: ${pk.set.size}개)`;
-}
-{
-  const g = $('#pickerGrid');
-  g.addEventListener('pointerdown', e => {
-    if (!(pk.mode === 'range' && pk.tool === 'cell')) return;
-    const b = e.target.closest('.pk'); if (!b || b.classList.contains('offc')) return;
-    e.preventDefault();
-    pk.painting = true; pk.paint = !pk.set.has(b.dataset.r + ',' + b.dataset.c);
-    paintCell(b);
-  });
-  g.addEventListener('pointermove', e => {
-    if (!pk.painting) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    paintCell(el && el.closest ? el.closest('.pk') : null);
-  });
-  document.addEventListener('pointerup', () => { pk.painting = false; });
-  document.addEventListener('pointercancel', () => { pk.painting = false; });
-}
-
 /* ================= 검증 / 배치 알고리즘 ================= */
 function validate() {
   const e = [], n = state.students.length, seats = seatCount();
@@ -411,7 +386,7 @@ function validate() {
     const s = byId(f.s); if (!s) continue;
     if (f.r >= state.layout.rows || f.c >= state.layout.cols || isOff(f.r, f.c)) e.push(`${label(s)}의 고정석(${seatText(f.r, f.c)})이 좌석이 아니에요.`);
     const k = f.r + ',' + f.c;
-    if (taken[k]) e.push(`${label(s)}와(과) ${label(taken[k])}의 고정석이 같아요.`); else taken[k] = s;
+    if (taken[k]) e.push(`${josa(label(s), '과/와')} ${label(taken[k])}의 고정석이 같아요.`); else taken[k] = s;
   }
   const rs = {};
   for (const g of state.ranges) {
@@ -421,18 +396,18 @@ function validate() {
   }
   for (const [id, arr] of Object.entries(rs)) if (!arr.some(Boolean)) e.push(`${label(byId(+id))}의 범위 안에 좌석이 없어요.`);
   for (const p of state.pairs) if (state.seps.some(q => (q.a === p.a && q.b === p.b) || (q.a === p.b && q.b === p.a)))
-    e.push(`${label(byId(p.a))}·${label(byId(p.b))}이(가) 붙이기와 떼기에 모두 들어 있어요.`);
+    e.push(`${label(byId(p.a))}·${josa(label(byId(p.b)), '이/가')} 붙이기와 떼기에 모두 들어 있어요.`);
   return e;
 }
 
 function solve() {
-  const S = state.students, n = S.length, gm = state.settings.mode === 'group';
+  const S = state.students, n = S.length, gm = state.settings.mode === 'group', D = dims();
   const seats = [], seatIdx = {};
   for (let r = 0; r < state.layout.rows; r++) for (let c = 0; c < state.layout.cols; c++)
-    if (!isOff(r, c)) { seatIdx[r + ',' + c] = seats.length; seats.push({ r, c }); }
+    if (!isOff(r, c)) { seatIdx[r + ',' + c] = seats.length; seats.push({ r, c, lr: D.rowNo[r], lc: D.colNo[c] }); }
   const sid = {}; S.forEach((s, i) => (sid[s.id] = i));
   // 거리 = 중심이 같은 정사각형 기준: 줄 차이와 열 차이 중 큰 값 (대각선도 피타고라스가 아닌 이 값)
-  const dist = (a, b) => Math.max(Math.abs(a.r - b.r), Math.abs(a.c - b.c));
+  const dist = (a, b) => Math.max(Math.abs(a.lr - b.lr), Math.abs(a.lc - b.lc));   // 통로를 뺀 줄·열 번호 기준
   const gOf = seats.map((st, k) => (gm ? (groupOf(st.r, st.c) ?? 's' + k) : null));
   const lr = seats.map(st => [seatIdx[st.r + ',' + (st.c - 1)], seatIdx[st.r + ',' + (st.c + 1)]].filter(v => v != null));
   // "옆 사람" 관계: 일반=좌우 이웃(통로로 끊기면 이웃 아님), 모둠=같은 모둠 구성원
@@ -555,7 +530,7 @@ function solve() {
     for (const [a, b, d] of seps) if (!sepOK(assign[a], assign[b], d)) warnings.push(`떼기 미충족: ${label(S[a])} · ${label(S[b])}`);
   }
   if (hasHist) for (let i = 0; i < n; i++) for (const j of hist[i]) if (j > i && nbrs[assign[i]].includes(assign[j]))
-    warnings.push(`이전에 짝이었던 ${label(S[i])} · ${label(S[j])}이(가) 다시 ${gm ? '같은 모둠' : '짝'}이 되었어요.`);
+    warnings.push(`이전에 짝이었던 ${label(S[i])} · ${josa(label(S[j]), '이/가')} 다시 ${gm ? '같은 모둠' : '짝'}이 되었어요.`);
 
   const out = {};
   S.forEach((s, i) => { const st = seats[assign[i]]; out[s.id] = [st.r, st.c]; });
@@ -637,7 +612,7 @@ function renderShuffle() {
     const s = state.slots[state.activeSlot];
     area.innerHTML = s
       ? `<div id="slotcard-${state.activeSlot}">${boardHTML(s)}<p class="meta">슬롯 ${state.activeSlot + 1} · ${fmtTime(s.at)} 배치${modeTxt(s)}</p>${warnHTML(s.warnings)}</div>`
-      : `<div class="empty-board">슬롯 ${state.activeSlot + 1}은(는) 비어 있어요.<br>위의 <b>자리 배치!</b> 버튼을 눌러 보세요.</div>`;
+      : `<div class="empty-board">${josa('슬롯 ' + (state.activeSlot + 1), '은/는')} 비어 있어요.<br>위의 <b>자리 배치!</b> 버튼을 눌러 보세요.</div>`;
   }
 }
 
@@ -749,7 +724,9 @@ function renderFinal() {
 }
 
 /* ================= 탭 ================= */
+const TAB_KEY = 'seat-changer-tab';   // 새로고침 후에도 보던 탭을 유지 (저장 파일에는 넣지 않는 화면 설정)
 function showTab(name) {
+  try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* ignore */ }
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
   if (name === 'setup') renderSetup();
@@ -908,6 +885,7 @@ async function importXlsx(file) {
       });
       dataRows('범위').forEach((r, i) => {
         const s = find(r[0]); const v = [1, 2, 3, 4].map(k => parseInt(r[k], 10));
+        if (s && next.fixed.some(f => f.s === s.id)) return warn.push(`범위 ${i + 2}행: ${josa(s.name, '은/는')} 고정석이 있어 범위를 지정할 수 없어요`);
         const R = [Math.min(v[0], v[1]), Math.max(v[0], v[1])].map(x => D.realRows[x - 1]);
         const C = [Math.min(v[2], v[3]), Math.max(v[2], v[3])].map(x => D.realCols[x - 1]);
         if (!s || v.some(x => !(x >= 1)) || R.includes(undefined) || C.includes(undefined)) return warn.push(`범위 ${i + 2}행: 학생 또는 숫자가 올바르지 않아요 (${r[0]})`);
@@ -972,16 +950,10 @@ function autoGroups(w, h) {
   return g;
 }
 
-/* ================= 도움말 모달 (오른쪽 위 X로만 닫힘) ================= */
-let helpClosing = false;
+/* ================= 도움말 모달 (오른쪽 위 X 또는 Esc로 닫힘) ================= */
 function openHelp(title, html) {
   $('#helpTitle').textContent = title; $('#helpBody').innerHTML = html;
-  helpClosing = false; $('#helpModal').showModal();
-}
-{
-  const d = $('#helpModal');
-  d.addEventListener('cancel', e => e.preventDefault());                       // Esc 무시
-  d.addEventListener('close', () => { if (!helpClosing) d.showModal(); });     // X가 아닌 방식으로 닫히면 다시 연다
+  $('#helpModal').showModal();
 }
 
 /* ================= 이벤트 ================= */
@@ -1025,7 +997,7 @@ document.addEventListener('click', async e => {
   if (t.classList.contains('pk')) {
     const r = +t.dataset.r, c = +t.dataset.c;
     if (pk.mode === 'cell') pk.sel = { r, c };
-    else if (pk.tool === 'cell') return;   // 칸 하나씩·드래그는 포인터 이벤트에서 처리
+    else if (pk.tool === 'cell') { const k = r + ',' + c; if (pk.set.has(k)) pk.set.delete(k); else pk.set.add(k); }
     else if (!pk.anchor) pk.anchor = { r, c };
     else { addRect(pk.anchor.r, pk.anchor.c, r, c); pk.anchor = null; }
     drawPicker(); return;
@@ -1035,16 +1007,25 @@ document.addEventListener('click', async e => {
   const idx = t.dataset.i != null ? +t.dataset.i : state.activeSlot;
   if (busy && act !== 'picker-cancel') return;
   switch (act) {
+    case 'range-help': openHelp('범위 제한 학생 — 사용 방법', `
+      <p>범위를 정한 학생은 <b>지정한 구역 안에서만</b> 섞여요. (예: 시력 때문에 앞 두 줄)</p>
+      <ul>
+        <li><b>구역 선택…</b> 버튼으로 구역을 정해요.</li>
+        <li>사각형으로 두 모서리를 눌러 고르거나, 한 칸씩 눌러서 고를 수 있어요.</li>
+        <li>사각형이 아니어도 괜찮아요. 이곳저곳 원하는 칸을 골라 구역을 만들 수 있어요.</li>
+        <li>같은 학생에게 구역을 여러 번 추가하면 모두 합쳐서 적용돼요.</li>
+        <li>고정석이 있는 학생은 범위를 지정할 수 없어요.</li>
+      </ul>`); break;
     case 'sep-help': openHelp('떼어 앉힐 학생 — 반경이란?', `
       <p>반경은 한 학생의 자리를 <b>중심으로 한 정사각형 범위</b>로 잽니다. 두 자리의 줄 차이와 열 차이 중 <b>큰 값</b>이 반경 이상이어야 떼어 앉힌 것으로 봐요.</p>
       <ul>
         <li><b>반경 2칸</b> : 바로 옆·앞뒤·대각선에는 앉을 수 없고, 한 칸 건너 앉는 것은 가능해요.</li>
         <li><b>반경 3칸</b> : 두 칸 이상 떨어져야 해요.</li>
         <li>선택할 수 있는 최댓값은 좌석 배열에 맞춰 자동으로 정해져요.</li>
-        <li>통로 줄·열도 1칸으로 계산해요.</li>
+        <li>통로(책상이 하나도 없는 줄·열)는 칸 수에 넣지 않아요.</li>
         <li>모둠 배치에서는 반경 대신 <b>"다른 모둠"</b>이면 떼어 앉힌 것으로 봐요.</li>
       </ul>`); break;
-    case 'help-close': helpClosing = true; $('#helpModal').close(); break;
+    case 'help-close': $('#helpModal').close(); break;
     case 'save-json': saveJson(); break;
     case 'load-json': $('#fileJson').click(); break;
     case 'xlsx-template': templateXlsx(); break;
@@ -1116,17 +1097,24 @@ document.addEventListener('click', async e => {
       if (!s || !pend.fixed) { await notify('학생과 자리를 선택해 주세요.'); break; }
       const other = state.fixed.find(f => f.s !== s && f.r === pend.fixed.r && f.c === pend.fixed.c);
       if (other) { await notify(`${label(byId(other.s))}의 고정석과 같은 자리예요.`); break; }
+      const had = state.ranges.filter(g => g.s === s).length;
+      if (had && !await ask(`${label(byId(s))}에게는 범위 제한이 ${had}개 있어요.
+고정석을 지정하면 범위 제한은 삭제됩니다.
+계속할까요?`, { title: '범위 제한이 삭제돼요', ok: '고정석 지정', danger: true })) break;
+      state.ranges = state.ranges.filter(g => g.s !== s);
       state.fixed = state.fixed.filter(f => f.s !== s); state.fixed.push({ s, ...pend.fixed });
       pend.fixed = null; save(); renderConstraints(); break;
     }
     case 'pick-range':
       if (!seatCount()) { await notify('먼저 좌석을 만들어 주세요.'); break; }
-      openPicker({ title: '범위 선택', hint: '사각형: 두 모서리를 차례로 누르면 그 안의 칸이 추가돼요. 칸 하나씩: 누르거나 드래그해서 칠하고, 다시 누르면 해제돼요. "+" 버튼은 해당 구역을 추가해요.', mode: 'range', initial: pend.range, cb: v => { pend.range = v; renderConstraints(); } }); break;
+      openPicker({ title: '범위 선택', hint: '사각형: 두 모서리를 차례로 누르면 그 안의 칸이 추가돼요. 한 칸씩: 칸을 누르면 선택되고, 다시 누르면 해제돼요.', mode: 'range', initial: pend.range, cb: v => { pend.range = v; renderConstraints(); } }); break;
     case 'add-range': {
       const s = +$('#rngS').value;
       if (!s || !pend.range) { await notify('학생과 구역을 선택해 주세요.'); break; }
+      if (state.fixed.some(f => f.s === s)) { await notify(`${josa(label(byId(s)), '은/는')} 고정석이 있어서 범위를 지정할 수 없어요.`); break; }
       state.ranges.push({ s, ...pend.range }); pend.range = null; save(); renderConstraints(); break;
     }
+    case 'picker-reset': pk.set.clear(); pk.anchor = null; drawPicker(); break;
     case 'picker-cancel': $('#picker').close(); break;
     case 'picker-ok': {
       const v = pk.mode === 'range' ? normalizeSel(pk.set) : pk.sel;
@@ -1169,6 +1157,15 @@ document.addEventListener('change', async e => {
     state.layout.disabled = state.layout.disabled.filter(k => { const [r, c] = k.split(',').map(Number); return r < rows && c < cols; });
     pruneConstraints(); save(); renderLayout(); renderConstraints();
   } else if (t.id === 'optMode') {
+    // 모둠 → 일반 자리: 모둠 기준(같은 모둠/다른 모둠)으로 만든 붙이기·떼기는 의미가 달라지므로 초기화
+    if (t.value === 'seat' && state.settings.mode === 'group' && (state.pairs.length || state.seps.length)) {
+      const ok = await ask(`일반 자리 모드로 돌아가면 붙여 앉힐 학생(${state.pairs.length}쌍)과 떼어 앉힐 학생(${state.seps.length}쌍)에 설정한 내용이 초기화됩니다.
+계속할까요?`,
+        { title: '설정이 초기화돼요', ok: '초기화하고 변경', danger: true });
+      if (!ok) { t.value = 'group'; return; }
+      state.pairs = []; state.seps = [];
+      renderConstraints();
+    }
     state.settings.mode = t.value; save(); renderOptions();
     if (t.value === 'group' && !Object.keys(state.layout.groups).length)
       await notify('모둠 배치를 쓰려면 먼저 모둠을 만들어야 해요.\n좌석 배열의 "모둠 편집 모드"에서 직접 칠하거나 "자동 묶기"를 눌러 주세요.');
@@ -1205,4 +1202,8 @@ function pruneConstraints() {
 window.addEventListener('beforeunload', () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } });
 
 /* ================= 시작 ================= */
-showTab(state.final && !state.slots.some(Boolean) && state.students.length ? 'final' : state.students.length ? 'shuffle' : 'setup');
+let startTab = null;
+try { startTab = localStorage.getItem(TAB_KEY); } catch (e) { /* ignore */ }
+if (!['setup', 'shuffle', 'final'].includes(startTab))   // 처음 접속: 작업 상태에 맞춰 시작 탭 결정
+  startTab = state.final && !state.slots.some(Boolean) && state.students.length ? 'final' : state.students.length ? 'shuffle' : 'setup';
+showTab(startTab);

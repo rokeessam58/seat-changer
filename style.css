@@ -103,9 +103,9 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 
 /* 좌석 편집기 */
 .layout-editor{margin-top:6px;overflow:auto}
-.le{display:inline-grid;gap:4px;padding:6px}
+.le{display:inline-grid;gap:4px;padding:6px 6px 6px 0}
 .le .podium-bar{grid-column:1/-1}
-.le button{border:2px solid var(--line);background:#fff;border-radius:9px;min-width:44px;height:36px;cursor:pointer;font-family:var(--font-cute)}
+.le button{border:2px solid var(--line);background:#fff;border-radius:9px;min-width:43px;height:36px;cursor:pointer;font-family:var(--font-cute)}
 .le button.cell.on{background:var(--gc,var(--none));border-color:var(--gc-b,var(--none-b))}
 .le button.cell.off{background:repeating-linear-gradient(45deg,#f6f1fb,#f6f1fb 4px,#fff 4px,#fff 8px);color:#d3c8e2}
 .le button.hd{background:#f6efff;font-size:.78rem;color:var(--muted);min-width:3.2em;padding:0 8px;white-space:nowrap}
@@ -192,7 +192,12 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 .pk{min-width:48px;height:38px;border:2px solid var(--none-b);background:var(--none);border-radius:9px;cursor:pointer;font-size:.8rem;font-family:var(--font-cute)}
 .pk.offc{visibility:hidden}
 .pk.sel{background:var(--brand);border-color:var(--brand);color:#fff}
-.pk.pre{outline:3px dashed var(--brand)}
+.pk.pre{outline:3px dashed var(--brand);outline-offset:-5px;animation:pkBlink 1s ease-in-out infinite}
+@keyframes pkBlink{0%,100%{outline-color:rgba(143,120,230,1)}50%{outline-color:rgba(143,120,230,.15)}}
+/* 이미 선택된(진한 보라) 칸이 시작 모서리일 때는 점선을 선택 전 칸의 배경색(--none)으로 그려서 보이게 함 */
+.pk.sel.pre{outline-color:var(--none);animation-name:pkBlinkSel}
+@keyframes pkBlinkSel{0%,100%{outline-color:rgba(235,227,255,1)}50%{outline-color:rgba(235,227,255,.15)}}
+@media (prefers-reduced-motion:reduce){.pk.pre{animation:none}}
 
 @media (max-width:900px){
   .grid12{grid-template-columns:minmax(0,1fr)}
@@ -240,6 +245,10 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 .help{padding-right:56px}   /* 위치는 dialog 기본값(fixed)을 유지해야 열 때 스크롤이 튀지 않음 */
 .help .x-close{position:absolute;top:12px;right:14px;width:2rem;height:2rem;border-radius:50%;border:2px solid var(--line);background:#fff;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;padding:0}
 .help .x-close:hover{border-color:var(--danger);color:var(--danger)}
+/* X 표시는 글자 대신 두 선으로 그려서 글꼴과 상관없이 원의 정중앙에 오게 함 */
+.help .x-close::before,.help .x-close::after{content:'';position:absolute;left:50%;top:50%;width:.9rem;height:2px;border-radius:2px;background:currentColor}
+.help .x-close::before{transform:translate(-50%,-50%) rotate(45deg)}
+.help .x-close::after{transform:translate(-50%,-50%) rotate(-45deg)}
 #helpBody p{margin:8px 0}
 #helpBody ul{margin:6px 0;padding-left:20px}
 #helpBody li{margin:4px 0}
@@ -255,3 +264,18 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 .pg-mode.nat select{flex:none}
 /* 고정석·범위 카드의 학생 드롭다운도 줄어들지 않고 내용 너비를 유지 */
 #fixS,#rngS{flex:none;width:var(--stu-w,9rem);max-width:100%}
+
+#modeHint:empty{display:none}
+
+/* 모둠 배치: 방식·반경 줄을 숨기고 추가 버튼을 학생 선택 줄로 */
+.pair-grid.gm .pg-mode{display:none}
+.pair-grid.gm .pg-add{grid-row:1}
+
+/* 좌석 선택 창: 기본 너비 = 11열이 딱 맞는 크기(칸 48px × 11 + 간격 4px × 10 + 좌우 여백 48px), 12열부터는 내용에 맞춰 넓어짐 */
+#picker{min-width:min(96vw,calc(11 * 48px + 10 * 4px + 48px));max-width:min(96vw,980px)}
+#pickerHint{contain:inline-size}   /* 긴 안내 문장이 창 너비를 늘리지 않고 창 너비에 맞춰 줄바꿈되도록 */
+
+/* 좌석 선택 창: 도구 버튼과 좌석 배열을 가운데 정렬 */
+#pickerQuick{justify-content:center}
+#pickerQuick .seg{margin-left:0}
+.picker-grid{display:grid;width:max-content;max-width:100%;margin:10px auto}
