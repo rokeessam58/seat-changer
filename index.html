@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>우리반 자리 바꾸기</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext x=%2750%27 y=%2780%27 font-size=%2780%27 text-anchor=%27middle%27%3E%F0%9F%8F%AB%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -45,10 +46,10 @@
         <summary>엑셀 작성 방법 보기</summary>
         <ul>
           <li><b>학생명단</b> : 이름 / 성별(남·여). 번호는 위에서부터 1, 2, 3… 자동으로 매겨지며, 다른 시트에서 학생을 적을 때는 이 번호나 이름 중 편한 쪽을 쓰세요.</li>
-          <li><b>좌석배열</b> : 위쪽 줄이 <u>교탁에 가까운 앞줄</u>, 왼쪽이 <u>학생이 앉아서 본 왼쪽</u>. 책상이 있는 칸은 1, 빈 칸·통로는 0</li>
+          <li><b>좌석배열</b> : 위쪽 행이 <u>교탁에 가까운 앞쪽 행</u>, 왼쪽이 <u>학생이 앉아서 본 왼쪽</u>. 책상이 있는 칸은 1, 빈 칸·통로는 0</li>
           <li><b>모둠</b> : 좌석배열과 같은 크기의 표에 모둠 번호를 적습니다 (모둠 배치를 쓸 때만, 없는 칸은 0)</li>
           <li><b>붙이기 / 떼기</b> : 두 학생 (붙이기는 방식 좌우/주변, 떼기는 최소 반경 칸 수 — 비우면 2칸). 모둠 배치에서는 붙이기 = 같은 모둠, 떼기 = 다른 모둠</li>
-          <li><b>고정석</b> : 학생 / 행 / 열 — 통로를 뺀 번호입니다 (행 1 = 맨 앞줄, 열 1 = 맨 왼쪽)</li>
+          <li><b>고정석</b> : 학생 / 행 / 열 — 통로를 뺀 번호입니다 (행 1 = 맨 앞 행, 열 1 = 맨 왼쪽)</li>
           <li><b>범위</b> : 학생 / 시작행 / 끝행 / 시작열 / 끝열 — 같은 학생을 여러 줄 적으면 합쳐서 적용</li>
           <li><b>이전짝</b> : 예전에 짝(또는 같은 모둠)이었던 두 학생 — 앱에서 확정할 때마다 자동으로 쌓입니다</li>
         </ul>
@@ -71,29 +72,26 @@
       </div>
 
       <div class="card">
-        <h2>좌석 배열</h2>
-        <p class="hint">칸을 누르면 책상 있음/없음(통로)이 바뀝니다. 책상이 하나도 없는 줄·열은 <b>통로</b>로 표시되고 번호에서 빠집니다.</p>
-        <div class="row wrap">
-          <span class="dim-in"><input id="layRows" type="number" min="1" max="15" class="num" aria-label="행 수"> 행</span>
-          <span class="dim-in dim-gap"><input id="layCols" type="number" min="1" max="15" class="num" aria-label="열 수"> 열</span>
-          <button class="btn small" data-act="lay-reset">모두 책상으로</button>
-          <span id="seatSummary" class="count"></span>
-        </div>
-        <div class="row wrap" style="margin-top:8px">
+        <h2>좌석 배열 <button class="help-btn" data-act="layout-help" aria-label="좌석 배열 설명 보기" title="설명 보기">?</button></h2>
+        <div class="row wrap seat-controls">
           <div class="seg left" id="editSeg">
             <button data-edit="seat" class="on">책상 편집 모드</button>
             <button data-edit="group">모둠 편집 모드</button>
           </div>
+          <div class="dim-group">
+            <span class="dim-in"><input id="layRows" type="number" min="1" max="15" class="num" aria-label="행 수"> 행</span>
+            <span class="dim-in dim-tight"><input id="layCols" type="number" min="1" max="15" class="num" aria-label="열 수"> 열</span>
+            <button class="btn small" data-act="lay-reset">모두 책상으로</button>
+            <span id="seatSummary" class="count"></span>
+          </div>
         </div>
         <div id="groupTools" class="row wrap grp-tools" hidden>
-          <label>칠할 모둠 번호 <input id="grpNo" type="number" min="1" max="30" value="1" class="num"></label>
-          <button class="btn small" data-act="grp-next">다음 번호</button>
-          <span class="sep-v"></span>
-          <label>자동 묶기 가로 <input id="grpW" type="number" min="1" max="8" value="2" class="num"></label>
+          <label>가로 <input id="grpW" type="number" min="1" max="8" value="2" class="num"></label>
           <label>× 세로 <input id="grpH" type="number" min="1" max="8" value="2" class="num"></label>
           <button class="btn small primary" data-act="grp-auto">자동 묶기</button>
+          <span class="sep-v"></span>
+          <label>다음 번호로 개별 지정 : <input id="grpNo" type="number" min="1" max="30" value="1" class="num"></label>
           <button class="btn small danger" data-act="grp-clear">모둠 지우기</button>
-          <p class="hint small-hint" style="flex-basis:100%;margin:0">칸을 누르면 그 모둠 번호로 칠해지고, 같은 번호 칸을 다시 누르면 해제됩니다.</p>
         </div>
         <div id="layoutEditor" class="layout-editor"></div>
       </div>
@@ -145,7 +143,7 @@
         <h2>고정석 학생</h2>
         <div class="row wrap">
           <select id="fixS"></select>
-          <button class="btn small" data-act="pick-fixed">자리 선택…</button>
+          <button class="btn small" data-act="pick-fixed">자리 선택</button>
           <span id="fixPicked" class="picked">선택 안 됨</span>
           <button class="btn small primary" data-act="add-fixed">추가</button>
         </div>
@@ -155,7 +153,7 @@
         <h2>범위 제한 학생 <button class="help-btn" data-act="range-help" aria-label="범위 제한 설명 보기" title="설명 보기">?</button></h2>
         <div class="row wrap">
           <select id="rngS"></select>
-          <button class="btn small" data-act="pick-range">구역 선택…</button>
+          <button class="btn small" data-act="pick-range">구역 선택</button>
           <span id="rngPicked" class="picked">선택 안 됨</span>
           <button class="btn small primary" data-act="add-range">추가</button>
         </div>
@@ -210,9 +208,9 @@
   <div id="pickerQuick" class="row wrap"></div>
   <div id="pickerGrid" class="picker-grid"></div>
   <div class="row end">
-    <button class="btn" data-act="picker-cancel">취소</button>
-    <button class="btn danger" id="pickerReset" data-act="picker-reset">초기화</button>
-    <button class="btn primary" data-act="picker-ok">선택 완료</button>
+    <button class="btn small" data-act="picker-cancel">취소</button>
+    <button class="btn small danger" id="pickerReset" data-act="picker-reset">초기화</button>
+    <button class="btn small primary" data-act="picker-ok">선택 완료</button>
   </div>
 </dialog>
 

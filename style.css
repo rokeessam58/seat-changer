@@ -9,7 +9,7 @@
   --good-soft:#bfeed6; --good-ink:#17543a; --danger:#d1495b; --danger-soft:#ffe0e6;
   --male:#d3e9ff; --male-b:#9fcdf5; --female:#ffdbe9; --female-b:#f4a9c9; --none:#ebe3ff; --none-b:#c9baf5;
   --radius:16px;
-  --field-h:2.07rem;   /* 입력창·드롭다운 공통 높이 (학생 명단의 이름 입력창 기준) */
+  --field-h:1.92rem;   /* 입력창·드롭다운 공통 높이 (학생 명단의 이름 입력창 기준) */
   --font-body:"OmuDaye","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;
   --font-cute:"SchoolSafetyConstellation","OmuDaye","Malgun Gothic",sans-serif;
 }
@@ -71,15 +71,16 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--brand)}
 #layRows,#layCols{width:3.2rem}
 .dim-in{display:inline-flex;align-items:center;gap:6px}
 .dim-gap{margin-left:10px}
+.dim-tight{margin-left:2px}   /* 행 입력창과 열 입력창 사이는 더 가깝게 */
 textarea{width:100%;resize:vertical}
 .bulk{margin:10px 0}
 .guide{margin-top:10px;font-size:.95rem}
 .guide summary{cursor:pointer;color:var(--brand);font-family:var(--font-cute)}
 .guide li{margin:4px 0}
 
-.table-wrap{max-height:340px;overflow:auto;margin-top:10px;border:2px solid var(--line);border-radius:12px}
+.table-wrap{max-height:340px;overflow:auto;margin-top:12px;border:2px solid var(--line);border-radius:12px}
 .tbl{width:100%;border-collapse:collapse}
-.tbl th{position:sticky;top:0;background:#f6efff;text-align:left;padding:6px 8px;font-family:var(--font-cute);font-weight:700;color:#6b55c4}
+.tbl th{position:sticky;top:0;background:#f6efff;text-align:left;padding:4px 8px;font-family:var(--font-cute);font-weight:700;color:#6b55c4}
 #studentTable th:nth-child(2),#studentTable th:nth-child(3){padding-left:13px}
 .tbl td{padding:3px 6px;border-bottom:1px solid #f4ecfb}
 .tbl input[type=text],.tbl select{width:100%;padding-left:7px;padding-right:7px}
@@ -103,12 +104,12 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 
 /* 좌석 편집기 */
 .layout-editor{margin-top:6px;overflow:auto}
-.le{display:inline-grid;gap:4px;padding:6px 6px 6px 0}
-.le .podium-bar{grid-column:1/-1}
-.le button{border:2px solid var(--line);background:#fff;border-radius:9px;min-width:43px;height:36px;cursor:pointer;font-family:var(--font-cute)}
+.le{--seat-w:calc(3.2 * .78rem);display:grid;width:100%;gap:4px;padding:6px 0}   /* 행 번호 칸은 --seat-w(약 43.9px) 고정, 좌석 열은 영역 폭을 꽉 채우도록 늘어남(최소 --seat-w) */
+.le .podium-bar{grid-column:1/-1;contain:inline-size;padding:5px 8px;white-space:nowrap;overflow:hidden}   /* 막대 글씨가 열 너비를 늘리지 않게 함 */
+.le button{border:2px solid var(--line);background:#fff;border-radius:9px;min-width:var(--seat-w);height:36px;cursor:pointer;font-family:var(--font-cute)}
 .le button.cell.on{background:var(--gc,var(--none));border-color:var(--gc-b,var(--none-b))}
 .le button.cell.off{background:repeating-linear-gradient(45deg,#f6f1fb,#f6f1fb 4px,#fff 4px,#fff 8px);color:#d3c8e2}
-.le button.hd{background:#f6efff;font-size:.78rem;color:var(--muted);min-width:3.2em;padding:0 8px;white-space:nowrap}
+.le button.hd{background:#f6efff;font-size:.78rem;color:var(--muted);min-width:var(--seat-w);padding:0 8px;white-space:nowrap}
 .le button.hd.aisle{background:#fff7e0;color:#b58b1d;border-style:dashed}
 .le button.hd.static{cursor:default}
 .grp-tools{background:#faf5ff;border:2px dashed var(--line);border-radius:12px;padding:8px 12px;margin-top:8px}
@@ -279,3 +280,25 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 #pickerQuick{justify-content:center}
 #pickerQuick .seg{margin-left:0}
 .picker-grid{display:grid;width:max-content;max-width:100%;margin:10px auto}
+
+#grpW,#grpH,#grpNo{width:57.6px}   /* 기본(.num 72px)의 80% */
+
+/* 모둠 편집 도구의 두 버튼(자동 묶기·모둠 지우기)은 글꼴·색과 상관없이 같은 높이로 고정 */
+#groupTools .btn{height:1.92rem;padding-top:0;padding-bottom:0;line-height:1.2}
+
+/* 상단의 학급 이름 입력창은 공통 높이(소형 버튼과 같은 33.8px)에서 제외 — 기존 높이 유지 */
+#className{height:40px;font-size:1.1rem}
+
+/* 1단계: 한 줄에 다 안 들어가면 이 영역 전체가 모드 버튼 아래 줄로 내려감 / 2단계: 그 줄도 모자라면 안의 요소가 하나씩 줄바꿈 */
+.dim-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.seat-controls{column-gap:18px}   /* 모드 버튼과 입력 덩어리 사이 간격(줄이 바뀌어도 왼쪽 정렬 유지) */
+
+/* 모드·도구 전환 버튼(책상/모둠 편집 모드, 사각형/한 칸씩 선택)은 소형 버튼 크기(높이 33.8px)로 */
+#editSeg button,#pickerTools button{font-size:.9rem;padding:3px 11px;line-height:1.5}
+#editSeg,#pickerTools{border-radius:12px}
+
+/* 비활성(책상 없음) 칸의 X 표시: 글자 대신 두 선으로 그려 정중앙에 오게 함 */
+.le button.cell{position:relative}
+.le button.cell.off::before,.le button.cell.off::after{content:'';position:absolute;left:50%;top:50%;width:14px;height:2px;border-radius:2px;background:currentColor}
+.le button.cell.off::before{transform:translate(-50%,-50%) rotate(45deg)}
+.le button.cell.off::after{transform:translate(-50%,-50%) rotate(-45deg)}

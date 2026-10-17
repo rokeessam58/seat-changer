@@ -187,7 +187,7 @@ function renderLayout() {
   $$('#editSeg button').forEach(b => b.classList.toggle('on', b.dataset.edit === editMode));
   $('#groupTools').hidden = editMode !== 'group';
   const grpMode = editMode === 'group';
-  let h = `<div class="le" style="grid-template-columns:repeat(${cols + 1},auto)"><div class="podium podium-bar" style="grid-column:1/-1;text-align:center">교 탁 (칠판)</div><span></span>`;
+  let h = `<div class="le" style="grid-template-columns:var(--seat-w) repeat(${cols},minmax(var(--seat-w),1fr))"><div class="podium podium-bar" style="grid-column:1/-1;text-align:center">${cols <= 2 ? '교탁' : '교탁(칠판)'}</div><span></span>`;
   for (let c = 0; c < cols; c++) {
     h += D.aisleCols[c] ? `<button class="hd aisle ${grpMode ? 'static' : ''}" ${grpMode ? '' : `data-lay-col="${c}"`}>통로</button>`
       : `<button class="hd ${grpMode ? 'static' : ''}" ${grpMode ? '' : `data-lay-col="${c}"`}>${D.colNo[c]}열</button>`;
@@ -198,7 +198,7 @@ function renderLayout() {
     for (let c = 0; c < cols; c++) {
       const off = isOff(r, c), g = groups[r + ',' + c];
       const style = !off && g ? `style="--gc:${gcolor(g)}55;--gc-b:${gcolor(g)}"` : '';
-      h += `<button class="cell ${off ? 'off' : 'on'}" data-lay="${r},${c}" ${style}>${off ? '✕' : (g || '')}</button>`;
+      h += `<button class="cell ${off ? 'off' : 'on'}" data-lay="${r},${c}" ${style}>${off ? '' : (g || '')}</button>`;
     }
   }
   $('#layoutEditor').innerHTML = h + '</div>';
@@ -768,11 +768,11 @@ function buildWorkbook(src) {
   add('안내', [
     ['우리반 자리 바꾸기 — 엑셀 작성 안내'], [''],
     ['[학생명단] 번호(자동 연번) / 이름 / 성별(남·여). 번호 칸은 비워도 되고, 위에서부터 1, 2, 3… 순서로 매겨집니다.'],
-    ['[좌석배열] 위쪽 줄이 교탁에 가까운 앞줄, 왼쪽이 학생이 앉아서 본 왼쪽. 책상 있는 칸 = 1, 빈 칸·통로 = 0'],
+    ['[좌석배열] 위쪽 행이 교탁에 가까운 앞쪽 행, 왼쪽이 학생이 앉아서 본 왼쪽. 책상 있는 칸 = 1, 빈 칸·통로 = 0'],
     ['[모둠] 좌석배열과 같은 크기의 표에 모둠 번호를 적습니다 (모둠 배치를 쓸 때만, 없는 칸은 0)'],
     ['[붙이기] 붙여 앉힐 두 학생 (번호 또는 이름)과 방식(좌우/주변, 비우면 설정 시트의 붙이기방식). 모둠 배치에서는 같은 모둠'],
-    ['[떼기] 떼어 앉힐 두 학생과 최소 반경(칸). 비우면 2칸. 반경 = 줄 차이와 열 차이 중 큰 값. 모둠 배치에서는 다른 모둠'],
-    ['[고정석] 학생 / 행 / 열 — 통로(책상이 하나도 없는 줄·열)를 뺀 번호. 행 1 = 맨 앞줄, 열 1 = 맨 왼쪽'],
+    ['[떼기] 떼어 앉힐 두 학생과 최소 반경(칸). 비우면 2칸. 반경 = 행 차이와 열 차이 중 큰 값. 모둠 배치에서는 다른 모둠'],
+    ['[고정석] 학생 / 행 / 열 — 통로(책상이 하나도 없는 행·열)를 뺀 번호. 행 1 = 맨 앞 행, 열 1 = 맨 왼쪽'],
     ['[범위] 학생 / 시작행 / 끝행 / 시작열 / 끝열 (같은 학생을 여러 줄 적으면 합쳐서 적용)'],
     ['[이전짝] 예전에 짝(또는 같은 모둠)이었던 두 학생. 앱에서 확정할 때마다 자동으로 쌓입니다.'],
     ['[설정] 배치방식(일반/모둠), 붙이기방식(좌우/주변), 남녀섞기, 이전자리피하기, 이전짝피하기(O/X)'],
@@ -1007,22 +1007,26 @@ document.addEventListener('click', async e => {
   const idx = t.dataset.i != null ? +t.dataset.i : state.activeSlot;
   if (busy && act !== 'picker-cancel') return;
   switch (act) {
-    case 'range-help': openHelp('범위 제한 학생 — 사용 방법', `
-      <p>범위를 정한 학생은 <b>지정한 구역 안에서만</b> 섞여요. (예: 시력 때문에 앞 두 줄)</p>
+    case 'layout-help': openHelp('좌석 배열 — 사용 방법', `
       <ul>
-        <li><b>구역 선택…</b> 버튼으로 구역을 정해요.</li>
-        <li>사각형으로 두 모서리를 눌러 고르거나, 한 칸씩 눌러서 고를 수 있어요.</li>
-        <li>사각형이 아니어도 괜찮아요. 이곳저곳 원하는 칸을 골라 구역을 만들 수 있어요.</li>
+        <li>칸을 누르면 <b>책상 있음/없음(빈칸)</b>이 바뀌어요.</li>
+        <li>행·열 머리글을 누르면 그 행·열 전체가 한 번에 바뀌어요.</li>
+        <li>책상이 하나도 없는 행·열은 <b>통로</b>로 표시되고 번호에서 빠져요.</li>
+      </ul>`); break;
+    case 'range-help': openHelp('범위 제한 학생 — 사용 방법', `
+      <p>범위를 정한 학생은 <b>지정한 구역 안에서만</b> 섞여요.<br>(예: 시력 때문에 앞 두 행)</p>
+      <ul>
+        <li><b>구역 선택</b> 버튼으로 구역을 정해요.</li>
         <li>같은 학생에게 구역을 여러 번 추가하면 모두 합쳐서 적용돼요.</li>
         <li>고정석이 있는 학생은 범위를 지정할 수 없어요.</li>
       </ul>`); break;
     case 'sep-help': openHelp('떼어 앉힐 학생 — 반경이란?', `
-      <p>반경은 한 학생의 자리를 <b>중심으로 한 정사각형 범위</b>로 잽니다. 두 자리의 줄 차이와 열 차이 중 <b>큰 값</b>이 반경 이상이어야 떼어 앉힌 것으로 봐요.</p>
+      <p>반경은 한 학생의 자리를 <b>중심으로 한 정사각형 범위</b>로 잽니다. 두 자리의 행 차이와 열 차이 중 <b>큰 값</b>이 반경 이상이어야 떼어 앉힌 것으로 봐요.</p>
       <ul>
         <li><b>반경 2칸</b> : 바로 옆·앞뒤·대각선에는 앉을 수 없고, 한 칸 건너 앉는 것은 가능해요.</li>
         <li><b>반경 3칸</b> : 두 칸 이상 떨어져야 해요.</li>
         <li>선택할 수 있는 최댓값은 좌석 배열에 맞춰 자동으로 정해져요.</li>
-        <li>통로(책상이 하나도 없는 줄·열)는 칸 수에 넣지 않아요.</li>
+        <li>통로(책상이 하나도 없는 행·열)는 칸 수에 넣지 않아요.</li>
         <li>모둠 배치에서는 반경 대신 <b>"다른 모둠"</b>이면 떼어 앉힌 것으로 봐요.</li>
       </ul>`); break;
     case 'help-close': $('#helpModal').close(); break;
@@ -1063,7 +1067,6 @@ document.addEventListener('click', async e => {
       if (!await ask('모든 칸을 책상으로 바꿀까요?\n통로·빈 칸으로 지정한 곳이 모두 책상이 돼요.', { title: '모두 책상으로', ok: '모두 책상으로' })) break;
       if (!await guard()) break; state.layout.disabled = []; save(); renderLayout(); renderConstraints(); break;
 
-    case 'grp-next': $('#grpNo').value = Math.min(30, (parseInt($('#grpNo').value, 10) || 1) + 1); break;
     case 'grp-auto': {
       if (state.settings.mode === 'group' && !await guard()) break;
       const w = Math.max(1, parseInt($('#grpW').value, 10) || 2), h = Math.max(1, parseInt($('#grpH').value, 10) || 2);
