@@ -8,7 +8,12 @@ const SLOT_N = 5;
 // 떼기 반경: 2칸 이상의 자연수만 사용 (1칸은 제한이 없는 것과 같음)
 const normSep = v => Math.min(40, Math.max(2, Math.ceil(Number(v) || 2)));
 const GC = ['#f59ea0', '#f5c26b', '#a9d96b', '#6bd4b0', '#6bb8f5', '#9b8cf5', '#e08cf5', '#f58cb8'];
-const gcolor = g => GC[(g - 1) % GC.length];
+// 모둠 색: 처음 8개는 고정 팔레트, 9번부터는 황금각(137.5°)으로 색상을 띄워 가며 명도를 번갈아 써서 모든 모둠이 서로 다른 색이 되게 한다
+const gcolor = g => {
+  if (g <= GC.length) return GC[g - 1];
+  const i = g - GC.length - 1;
+  return `hsl(${Math.round((i * 137.508 + 25) % 360)} ${[72, 62, 78][i % 3]}% ${[68, 76, 60][(i + 1) % 3]}%)`;
+};
 
 const defaultState = () => ({
   version: 2,
@@ -182,6 +187,7 @@ function genderCount() {
 function renderStudents() {
   const st = state.students;
   $('#studentCount').textContent = genderCount();
+  updateGroupSizeUI();
   $('#studentTable').innerHTML =
     '<tr><th>번호</th><th>이름</th><th>성별</th><th class="vcol">결번</th><th></th></tr>' +
     (st.length ? st.map((s, i) => `<tr class="${s.vacant ? 'vacant-row' : ''}">
@@ -213,11 +219,12 @@ function renderLayout() {
       : `<button class="hd ${grpMode ? 'static' : ''}" ${grpMode ? '' : `data-lay-row="${r}"`}>${D.rowNo[r]}행</button>`;
     for (let c = 0; c < cols; c++) {
       const off = isOff(r, c), g = groups[r + ',' + c];
-      const style = !off && g ? `style="--gc:${gcolor(g)}55;--gc-b:${gcolor(g)}"` : '';
+      const style = !off && g ? `style="--gc:color-mix(in srgb, ${gcolor(g)} 33%, transparent);--gc-b:${gcolor(g)}"` : '';
       h += `<button class="cell ${off ? 'off' : 'on'}" data-lay="${r},${c}" ${style}>${off ? '' : (g || '')}</button>`;
     }
   }
   $('#layoutEditor').innerHTML = h + '</div>';
+  updateGroupSizeUI();
 }
 
 // 떼기 반경의 최댓값 = 좌석 배열에서 가장 먼 두 자리 사이의 거리(줄 차이·열 차이 중 큰 값). 최소 2
@@ -588,8 +595,9 @@ function boardHTML(rec, { mini = false, edit = null } = {}) {
     const s = occ[r + ',' + c];
     if (!s) { cells += `<div class="seat vacant ${gcls}" ${gs}>${gb}</div>`; continue; }
     const sw = edit ? `data-swap="${s.id}" role="button" tabindex="0"` : '', pre = edit && edit.pending === s.id ? 'swap-pre' : '';
-    cells += `<div class="seat ${s.gender} ${gcls} ${pre}" ${gs} ${sw} data-sid="${s.id}" data-name="${esc(label(s))}" data-no="${esc(s.no)}">
-      <span class="no">${esc(s.no)}</span><span class="nm">${esc(label(s))}</span>${fixedIds.has(s.id) ? '<i class="pin">고정</i>' : ''}${gb}</div>`;
+    const dot = g && (s.gender === 'M' || s.gender === 'F') ? `<i class="gdot ${s.gender}"></i>` : '';
+    cells += `<div class="seat ${g ? 'gcolor' : s.gender} ${s.gender} ${gcls} ${pre}" ${gs} ${sw} data-sid="${s.id}" data-name="${esc(label(s))}" data-no="${esc(s.no)}">
+      <span class="no">${esc(s.no)}</span><span class="nm">${esc(label(s))}</span>${dot}${fixedIds.has(s.id) ? '<i class="pin">고정</i>' : ''}${gb}</div>`;
   }
   const D = dims();
   const units = Math.max(1, cs.reduce((u, c) => u + (D.aisleCols[c] ? 0.5 : 1), 0));
@@ -793,7 +801,17 @@ function openHistoryView(h) {
 
 /* ================= 탭 ================= */
 const TAB_KEY = 'seat-changer-tab';   // 새로고침 후에도 보던 탭을 유지 (저장 파일에는 넣지 않는 화면 설정)
+let setupLocked = false;   // 새로고침하면 풀리도록 메모리에만 둔다(저장하지 않음)
+const LOCK_SVG = { open: '<svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>', shut: '<svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' };
+function syncLock() {
+  $('.tab-wrap').classList.toggle('locked', setupLocked);
+  const st = $('.tab[data-tab="setup"]'), lb = $('#lockBtn');
+  st.disabled = lb.disabled = setupLocked;
+  lb.innerHTML = setupLocked ? LOCK_SVG.shut : LOCK_SVG.open;
+  lb.title = lb.ariaLabel = setupLocked ? '잠겨 있어요(새로고침하면 풀려요)' : '기초 설정 탭 잠그기';
+}
 function showTab(name) {
+  if (setupLocked && name === 'setup') name = 'shuffle';
   try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* ignore */ }
   syncClassName();   // 상단 학급 이름 입력창은 어느 탭에서든 저장된 값과 같게 맞춘다
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
@@ -999,6 +1017,322 @@ async function exportFinalXlsx() {
 }
 
 /* ================= 모둠 편집 ================= */
+// n명 / n-1명 모둠만으로 N명을 나누는 구성. 가능한 구성이 여럿이면 n명 모둠이 많은(모둠 수가 적은) 쪽을 쓴다
+function groupPlan(N, n) {
+  const g = Math.ceil(N / n);
+  if (g < 1 || g * (n - 1) > N) return null;
+  const big = N - g * (n - 1);        // n명 모둠 개수
+  return { g, big, small: g - big };  // small = (n-1)명 모둠 개수
+}
+const GROUP_SIZES = [3, 4, 5, 6, 7, 8];   // 선택지: (n-1)~n명 = 2~3명 … 7~8명
+const feasibleSizes = N => GROUP_SIZES.filter(n => groupPlan(N, n));
+
+// 인원수로 묶기 버튼/안내 갱신: 학생 수 ≠ 좌석 수면 막고, 나눌 수 없는 조합이면 가능한 구성을 추천한다
+function updateGroupSizeUI() {
+  const btn = document.querySelector('[data-act=grp-size]'); if (!btn) return;
+  const N = actives().length, S = seatCount(), n = +$('#grpSize').value;
+  const mis = $('#seatMismatch'), note = $('#grpSizeNote');
+  mis.hidden = N === S;   // 학생 수와 좌석 수가 다르면 (책상·모둠 편집 모드 모두) 좌석 배열 제목의 ? 오른쪽에 표시
+  mis.textContent = N === 0 ? '학생 명단이 비어 있어요' : `학생 수(${N}명)와 좌석 수(${S}개)가 맞지 않아요`;
+  let tip = '', noteText = '';
+  if (N === 0) tip = '학생 명단이 비어 있어요';
+  else if (S !== N) tip = S > N ? `좌석이 학생보다 ${S - N}개 많아요. 남는 좌석을 먼저 없애 주세요` : `좌석이 학생보다 ${N - S}개 적어요. 좌석을 늘려 주세요`;
+  else if (!groupPlan(N, n)) {
+    const ok = feasibleSizes(N);
+    noteText = ok.length
+      ? `학생 ${N}명은 ${n - 1}~${n}명 모둠으로 나눌 수 없어요. 가능한 구성: ${ok.map(k => `${k - 1}~${k}명`).join(', ')}`
+      : `학생 ${N}명은 2~3명부터 7~8명 모둠까지 어느 구성으로도 나눌 수 없어요`;
+    tip = noteText;
+  }
+  btn.disabled = !!tip; btn.title = tip;
+  note.hidden = !noteText; note.textContent = noteText;
+}
+
+// 좌석을 가까운 자리끼리 뭉쳐서 n명/(n-1)명 모둠으로 나눈다 (좌석 수 = 학생 수일 때만 호출)
+// 통로로 갈라진 구역이 각각 n명·(n-1)명 모둠으로 딱 나눠지면 구역 안에서만 묶고, 아니면 전체를 한꺼번에 묶는다
+function groupSeatsByCount(n) {
+  const plan = groupPlan(actives().length, n);
+  const seats = [];
+  for (let r = 0; r < state.layout.rows; r++) for (let c = 0; c < state.layout.cols; c++) if (!isOff(r, c)) seats.push({ r, c });
+  const raw = (a, b) => (a.r - b.r) ** 2 + (a.c - b.c) ** 2;
+  // 구역 구하기: 바로 옆·대각선으로 이어진 좌석끼리 한 구역 (통로가 끼면 갈라짐)
+  const comp = seats.map(() => -1); let cc = 0;
+  seats.forEach((_, i) => {
+    if (comp[i] >= 0) return;
+    const stack = [i]; comp[i] = cc;
+    while (stack.length) { const k = stack.pop(); seats.forEach((st, j) => { if (comp[j] < 0 && raw(seats[k], st) <= 2) { comp[j] = cc; stack.push(j); } }); }
+    cc++;
+  });
+  seats.forEach((st, i) => { st.comp = comp[i]; });
+  const d2 = (a, b) => raw(a, b) + (a.comp !== b.comp ? 1000 : 0);   // 구역을 넘는 묶음은 큰 불이익
+
+  // idxs(좌석 번호들)을 sizes대로 나눈다: 탐욕적 확장 + 두 자리 맞바꾸기 개선
+  const partition = (idxs, sizes) => {
+    const free = new Set(idxs), groups = [];
+    const freeNeighbors = i => { let k = 0; for (const j of free) if (j !== i && raw(seats[i], seats[j]) <= 2) k++; return k; };
+    for (const size of sizes) {
+      let seed = -1, best = Infinity;
+      for (const i of free) { const k = freeNeighbors(i); if (k < best) { best = k; seed = i; } }
+      const g = [seed]; free.delete(seed);
+      while (g.length < size) {
+        let pick = -1, bc = Infinity;
+        for (const j of free) { let cost = 0; for (const m of g) cost += d2(seats[j], seats[m]); if (cost < bc - 1e-9) { bc = cost; pick = j; } }
+        g.push(pick); free.delete(pick);
+      }
+      groups.push(g);
+    }
+    const costOf = g => { let t = 0; for (let x = 0; x < g.length; x++) for (let y = x + 1; y < g.length; y++) t += d2(seats[g[x]], seats[g[y]]); return t / g.length; };
+    const costs = groups.map(costOf);
+    for (let pass = 0, improved = true; improved && pass < 30; pass++) {
+      improved = false;
+      for (let x = 0; x < groups.length; x++) for (let y = x + 1; y < groups.length; y++)
+        for (let i = 0; i < groups[x].length; i++) for (let j = 0; j < groups[y].length; j++) {
+          const gx = groups[x], gy = groups[y], ia = gx[i], ib = gy[j];
+          gx[i] = ib; gy[j] = ia;
+          const cx = costOf(gx), cy = costOf(gy);
+          if (cx + cy < costs[x] + costs[y] - 1e-9) { costs[x] = cx; costs[y] = cy; improved = true; }
+          else { gx[i] = ia; gy[j] = ib; }
+        }
+    }
+    return groups;
+  };
+
+  // 구역별로 a*n + b*(n-1) = 구역 좌석 수 인 (a, b)를 찾는다(모둠 수가 적은 쪽 우선). 하나라도 안 되면 전체 묶기로 대체
+  const byComp = Array.from({ length: cc }, () => []);
+  seats.forEach((_, i) => byComp[comp[i]].push(i));
+  const perComp = byComp.map(idxs => {
+    for (let a2 = Math.floor(idxs.length / n); a2 >= 0; a2--) { const rest = idxs.length - a2 * n; if (rest % (n - 1) === 0) return { idxs, big: a2, small: rest / (n - 1) }; }
+    return null;
+  });
+  // 기본: 모둠마다 2개의 열을 쓴다. 열을 (1,2)(3,4)…로 짝지어 만든 2열 띠를 위에서 아래로 n명/(n-1)명씩 끊는다.
+  // 열이 홀수 개이거나, 띠마다 n·(n-1)명으로 딱 나눠지지 않거나, 끊은 모둠이 서로 붙어 있지 않으면(불가피한 경우) 쓰지 않는다
+  const twoColumn = () => {
+    const D = dims(), { rows, cols } = state.layout, idxOf = new Map(seats.map((st, i) => [st.r + ',' + st.c, i]));
+    const strips = [];
+    for (let c = 0; c < cols;) {
+      if (D.aisleCols[c]) { c++; continue; }
+      let c1 = c; while (c1 + 1 < cols && !D.aisleCols[c1 + 1]) c1++;   // 통로로 갈라진 연속 열 구간
+      if ((c1 - c + 1) % 2) return null;
+      for (let cp = c; cp < c1; cp += 2) {
+        for (let r = 0; r < rows;) {
+          if (D.aisleRows[r]) { r++; continue; }
+          let r1 = r; while (r1 + 1 < rows && !D.aisleRows[r1 + 1]) r1++;   // 통로 행으로 갈라진 연속 행 구간
+          const strip = [];
+          for (let rr = r; rr <= r1; rr++) for (let k = cp; k <= cp + 1; k++) if (!isOff(rr, k)) strip.push(idxOf.get(rr + ',' + k));
+          if (strip.length) strips.push(strip);
+          r = r1 + 1;
+        }
+      }
+      c = c1 + 1;
+    }
+    const out = [];
+    for (const strip of strips) {
+      let split = null;
+      for (let a2 = Math.floor(strip.length / n); a2 >= 0 && !split; a2--) { const rest = strip.length - a2 * n; if (rest % (n - 1) === 0) split = [a2, rest / (n - 1)]; }
+      if (!split) return null;
+      // 짝수 크기 모둠을 먼저(위에서부터 줄을 맞춰 2×2, 3×2 …), 홀수 크기 모둠은 뒤에서 둘씩 맞물리게(ㄱ자+ㄴ자, 5명은 2×2에 위/아래 한 칸)
+      const sz = [...Array(split[0]).fill(n), ...Array(split[1]).fill(n - 1)].sort((x, y) => (x % 2) - (y % 2));
+      let at = 0;
+      for (const k of sz) { out.push(strip.slice(at, at + k)); at += k; }
+    }
+    // 각 모둠이 서로 붙어 있는지 확인
+    for (const g of out) {
+      const seen = new Set([g[0]]), stack = [g[0]];
+      while (stack.length) { const x = stack.pop(); for (const y of g) if (!seen.has(y) && raw(seats[x], seats[y]) <= 2) { seen.add(y); stack.push(y); } }
+      if (seen.size !== g.length) return null;
+    }
+    return out;
+  };
+  // 2단계: 띠로 딱 나눠지지 않아도, 모둠마다 '서로 이웃한 두 열' 안에서만 모양을 맞춰 위→아래, 왼→오른 순서로 채워 나간다(되돌아가며 탐색)
+  const search2col = (maxUgly, deadline) => {
+    const { cols } = state.layout, total = seats.length;
+    const idxOf = new Map(seats.map((st, i) => [st.r + ',' + st.c, i]));   // seats는 위→아래, 왼→오른 순서
+    const rep = new Array(total + 1).fill(false); rep[0] = true;           // 남은 좌석 수를 n·(n-1)명 모둠으로 채울 수 있는지
+    for (let t = 1; t <= total; t++) rep[t] = (t >= n && rep[t - n]) || (t >= n - 1 && rep[t - (n - 1)]);
+    // 모양 목록: k명 = ceil(k/2)행 × 2열, 홀수면 모서리 한 칸이 빠짐(아래 모서리가 빠진 모양을 먼저 시도)
+    // loose(2단계): 2열 안에서 만들 수 있는 모든 이어진 모양을, 가장 뭉친 모양부터 시도한다
+    const allShapes = k => {
+      const grid = []; for (let r = 0; r < k; r++) for (let c = 0; c < 2; c++) grid.push([r, c]);
+      const found = new Map();
+      const walk = (start, chosen) => {
+        if (chosen.length === k) {
+          const set = new Set(chosen.map(x => x.join())), seen = new Set([chosen[0].join()]), st = [chosen[0]];
+          while (st.length) { const [r, c] = st.pop(); for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const key = (r + dr) + ',' + (c + dc); if (set.has(key) && !seen.has(key)) { seen.add(key); st.push([r + dr, c + dc]); } } }
+          if (seen.size !== k) return;
+          const top = Math.min(...chosen.map(x => x[0])), cells = chosen.map(([r, c]) => [r - top, c]);
+          const fc = Math.min(...cells.filter(([r]) => r === 0).map(([, c]) => c));
+          const rel = cells.map(([r, c]) => [r, c - fc]).sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+          found.set(rel.map(x => x.join()).join('|'), { rel, fc });
+          return;
+        }
+        for (let i = start; i < grid.length; i++) { chosen.push(grid[i]); walk(i + 1, chosen); chosen.pop(); }
+      };
+      walk(0, []);
+      const spread = sh => { const my = sh.rel.reduce((t, x) => t + x[0], 0) / k, mx = sh.rel.reduce((t, x) => t + x[1], 0) / k; return sh.rel.reduce((t, x) => t + (x[0] - my) ** 2 + (x[1] - mx) ** 2, 0); };
+      return [...found.values()].sort((a2, b2) => spread(a2) - spread(b2));
+    };
+    const niceShapes = [];
+    for (const k of [n, n - 1]) {
+      const h = Math.ceil(k / 2), full = [];
+      for (let dr = 0; dr < h; dr++) for (let dc = 0; dc < 2; dc++) full.push([dr, dc]);
+      const miss = h * 2 === k ? [null] : [[h - 1, 1], [h - 1, 0], [0, 1], [0, 0]];
+      for (const m of miss) {
+        const cells = m ? full.filter(([a2, b2]) => !(a2 === m[0] && b2 === m[1])) : full;
+        const fc = Math.min(...cells.filter(([a2]) => a2 === 0).map(([, b2]) => b2));   // 맨 윗줄의 가장 왼쪽 칸이 기준점
+        niceShapes.push({ rel: cells.map(([a2, b2]) => [a2, b2 - fc]), fc, nice: true });
+      }
+    }
+    const keyOf = sh => sh.rel.map(x => x.join()).sort().join('|');
+    const niceKeys = new Set(niceShapes.map(keyOf));
+    // 반듯한 모양(n명 → n-1명 순) 다음에, 2열 안에서 만들 수 있는 나머지 모양을 뭉친 순서대로
+    const shapes = [...niceShapes];
+    if (maxUgly > 0) for (const k of [n, n - 1]) shapes.push(...allShapes(k).filter(sh => !niceKeys.has(keyOf(sh))).map(sh => ({ ...sh, nice: false })));
+    const assign = new Array(total).fill(-1), groups = [];
+    let nodes = 0, ugly = 0;
+    const NEI = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const freeOk = () => {   // 남은 빈 좌석의 (상하좌우로 이어진) 덩어리가 모두 n·(n-1)명 모둠 조합으로 채워질 수 있어야 한다
+      const seen = new Uint8Array(total);
+      for (let i = 0; i < total; i++) {
+        if (assign[i] >= 0 || seen[i]) continue;
+        let size = 0; const st = [i]; seen[i] = 1;
+        while (st.length) {
+          const x = st.pop(); size++;
+          for (const [dr, dc] of NEI) { const y = idxOf.get((seats[x].r + dr) + ',' + (seats[x].c + dc)); if (y !== undefined && assign[y] < 0 && !seen[y]) { seen[y] = 1; st.push(y); } }
+        }
+        if (!rep[size]) return false;
+      }
+      return true;
+    };
+    const rec = first => {
+      while (first < total && assign[first] >= 0) first++;
+      if (first >= total) return true;
+      if (++nodes > 200000 || ((nodes & 255) === 0 && performance.now() > deadline)) return false;   // 횟수 또는 마감 시각을 넘기면 포기
+      const a0 = seats[first];
+      for (const sh of shapes) {
+        const tc = a0.c - sh.fc; if (tc < 0 || tc + 1 >= cols) continue;
+        const cells = []; let ok = true;
+        for (const [dr, dc] of sh.rel) { const y = idxOf.get((a0.r + dr) + ',' + (a0.c + dc)); if (y === undefined || assign[y] >= 0) { ok = false; break; } cells.push(y); }
+        if (!ok) continue;
+        if (!sh.nice && ugly + 1 > maxUgly) continue;
+        cells.forEach(y => { assign[y] = groups.length; }); groups.push(cells); if (!sh.nice) ugly++;
+        if (freeOk() && rec(first)) return true;
+        groups.pop(); cells.forEach(y => { assign[y] = -1; }); if (!sh.nice) ugly--;
+        if (nodes > 200000 || performance.now() > deadline) return false;
+      }
+      return false;
+    };
+    return rec(0) ? groups : null;
+  };
+  // 0단계: 구성(n명 plan.big개 + (n-1)명 plan.small개)을 먼저 정해 놓고, 반듯한 모양으로 빈틈없이 채운다(위→아래, 왼→오른 순서, 되돌아가며 탐색)
+  // 모양: 세로 2열 묶음(3행×2열 등)을 먼저, 막히면 가로 묶음(2행×3열 등). 짝수 인원은 직사각형, 홀수 인원은 모서리 한 칸이 빠진 직사각형
+  let scoreOf = null;   // 모양 점수: 반듯하지 않은 모둠이 적을수록 낮다(n명 모둠은 3배)
+  const exactTile = loose => {
+    const total = seats.length, idxOf = new Map(seats.map((st, i) => [st.r + ',' + st.c, i]));
+    const norm = cells => { const s = [...cells].sort((a, b) => a[0] - b[0] || a[1] - b[1]), [r0, c0] = s[0]; return s.map(([r, c]) => [r - r0, c - c0]); };   // 맨 윗줄 맨 왼쪽 칸이 기준점
+    const keyOf = rel => rel.map(x => x.join()).join('|');
+    const rect = (h, w) => { const o = []; for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) o.push([r, c]); return o; };
+    const niceOf = k => {
+      const out = [], seen = new Set(), h = Math.ceil(k / 2);
+      const add = (cells, cls) => { const rel = norm(cells), key = keyOf(rel); if (!seen.has(key)) { seen.add(key); out.push({ rel, cls }); } };
+      const miss = h * 2 === k ? [null] : [[h - 1, 1], [h - 1, 0], [0, 1], [0, 0]];   // 아래 모서리가 빠진 모양을 먼저
+      for (const m of miss) add(m ? rect(h, 2).filter(([a, b]) => !(a === m[0] && b === m[1])) : rect(h, 2), 0);
+      for (const m of miss) add(m ? rect(2, h).filter(([a, b]) => !(a === m[1] && b === m[0])) : rect(2, h), 1);
+      return out;
+    };
+    const looseOf = k => {   // 폭 2칸 안에서 만들 수 있는 이어진 모양 전부(세로·가로), 뭉친 순서
+      const found = new Map();
+      const grid = []; for (let r = 0; r < k; r++) for (let c = 0; c < 2; c++) grid.push([r, c]);
+      const walk = (start, chosen) => {
+        if (chosen.length === k) {
+          const set = new Set(chosen.map(x => x.join())), seen = new Set([chosen[0].join()]), st = [chosen[0]];
+          while (st.length) { const [r, c] = st.pop(); for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const key = (r + dr) + ',' + (c + dc); if (set.has(key) && !seen.has(key)) { seen.add(key); st.push([r + dr, c + dc]); } } }
+          if (seen.size !== k) return;
+          for (const cells of [chosen, chosen.map(([r, c]) => [c, r])]) { const rel = norm(cells); found.set(keyOf(rel), { rel, cls: 2 }); }
+          return;
+        }
+        for (let i = start; i < grid.length; i++) { chosen.push(grid[i]); walk(i + 1, chosen); chosen.pop(); }
+      };
+      walk(0, []);
+      const spread = sh => { const my = sh.rel.reduce((t, x) => t + x[0], 0) / k, mx = sh.rel.reduce((t, x) => t + x[1], 0) / k; return sh.rel.reduce((t, x) => t + (x[0] - my) ** 2 + (x[1] - mx) ** 2, 0); };
+      return [...found.values()].sort((a, b) => spread(a) - spread(b));
+    };
+    const niceKeys = {}; for (const k of [n, n - 1]) niceKeys[k] = new Set(niceOf(k).map(sh => keyOf(sh.rel)));
+    scoreOf = gs => gs.reduce((t, g) => t + (niceKeys[g.length].has(keyOf(norm(g.map(i => [seats[i].r, seats[i].c])))) ? 0 : (g.length === n ? 3 : 1)), 0);
+    const NEI = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const run = (shBig, shSmall, maxUgly, deadline) => {
+      const assign = new Array(total).fill(-1), groups = [];
+      let bigLeft = plan.big, smallLeft = plan.small, nodes = 0, ugly = 0, dead = false;
+      const sizeOk = s => { for (let a = Math.min(bigLeft, Math.floor(s / n)); a >= 0; a--) { const rest = s - a * n; if (rest % (n - 1) === 0 && rest / (n - 1) <= smallLeft) return true; } return false; };
+      const freeOk = () => {   // 남은 빈 좌석의 이어진 덩어리마다, 남은 모둠 개수로 채울 수 있어야 한다
+        const seen = new Uint8Array(total);
+        for (let i = 0; i < total; i++) {
+          if (assign[i] >= 0 || seen[i]) continue;
+          let size = 0; const st = [i]; seen[i] = 1;
+          while (st.length) { const x = st.pop(); size++; for (const [dr, dc] of NEI) { const y = idxOf.get((seats[x].r + dr) + ',' + (seats[x].c + dc)); if (y !== undefined && assign[y] < 0 && !seen[y]) { seen[y] = 1; st.push(y); } } }
+          if (!sizeOk(size)) return false;
+        }
+        return true;
+      };
+      const rec = first => {
+        while (first < total && assign[first] >= 0) first++;
+        if (first >= total) return true;
+        if (++nodes > 200000 || ((nodes & 255) === 0 && performance.now() > deadline)) { dead = true; return false; }
+        const a0 = seats[first];
+        for (const big of [true, false]) {
+          if (big ? bigLeft <= 0 : smallLeft <= 0) continue;
+          for (const sh of big ? shBig : shSmall) {
+            if (sh.cls > 0 && ugly + 1 > maxUgly) continue;
+            const cells = []; let ok = true;
+            for (const [dr, dc] of sh.rel) { const y = idxOf.get((a0.r + dr) + ',' + (a0.c + dc)); if (y === undefined || assign[y] >= 0) { ok = false; break; } cells.push(y); }
+            if (!ok) continue;
+            cells.forEach(y => { assign[y] = groups.length; }); groups.push(cells); if (big) bigLeft--; else smallLeft--; if (sh.cls > 0) ugly++;
+            if (freeOk() && rec(first)) return true;
+            groups.pop(); cells.forEach(y => { assign[y] = -1; }); if (big) bigLeft++; else smallLeft++; if (sh.cls > 0) ugly--;
+            if (dead) return false;
+          }
+        }
+        return false;
+      };
+      return rec(0) ? groups : null;
+    };
+    const deadline = performance.now() + (loose ? 1000 : 1500);   // 전체 탐색 시간 제한
+    const nb = niceOf(n), ns = niceOf(n - 1);
+    let g = null;
+    if (!loose) { for (let m = 0; m <= plan.g && !g && performance.now() < deadline; m++) g = run(nb, ns, m, deadline); return g; }   // 가로 묶음을 최대 m개까지 허용
+    g = run(nb, [...ns, ...looseOf(n - 1)], Infinity, deadline);     // (n-1)명 모둠만 변형 모양 허용
+    if (!g && performance.now() < deadline) g = run([...nb, ...looseOf(n)], [...ns, ...looseOf(n - 1)], Infinity, deadline);
+    return g;
+  };
+  let groups = exactTile(false);   // 반듯한 모양만으로 구성대로 채워지면 그대로 사용
+  if (!groups) {
+    // 아니면 기존 방식(2열 띠 → 2열 탐색)과 구성대로 변형 모양을 허용한 방식 중, 반듯하지 않은 모둠이 적은 쪽을 사용
+    let a = twoColumn();
+    if (!a) {
+      const deadline = performance.now() + 1500;   // 전체 탐색 시간 제한
+      for (let m = 0; m <= plan.g && !a && performance.now() < deadline; m++) a = search2col(m, deadline);   // 반듯하지 않은 모양을 최대 m개까지 허용
+      if (!a) a = search2col(Infinity, performance.now() + 1500);
+    }
+    const b = exactTile(true);
+    const fits = x => x.filter(g => g.length === n).length === plan.big;   // 구성(n명 모둠 개수)이 계획과 같은가 — 큰 모둠 우선이 모양보다 먼저
+    groups = a && b ? (fits(a) !== fits(b) ? (fits(a) ? a : b) : (scoreOf(b) <= scoreOf(a) ? b : a)) : (a || b);
+  }
+  if (!groups) {
+    groups = [];
+    if (perComp.every(Boolean)) {
+      perComp.forEach(pc => { groups.push(...partition(pc.idxs, [...Array(pc.big).fill(n), ...Array(pc.small).fill(n - 1)])); });
+    } else {
+      groups = partition(seats.map((_, i) => i), [...Array(plan.big).fill(n), ...Array(plan.small).fill(n - 1)]);
+    }
+  }
+  // 번호는 위쪽·왼쪽 모둠부터 1, 2, 3…
+  const order = groups.map((g, i) => { const top = Math.min(...g.map(k => seats[k].r)); return { i, top, left: Math.min(...g.filter(k => seats[k].r === top).map(k => seats[k].c)) }; })
+    .sort((p, q) => p.top - q.top || p.left - q.left);
+  const out = {};
+  order.forEach((o, idx) => groups[o.i].forEach(k => { out[seats[k].r + ',' + seats[k].c] = idx + 1; }));
+  return out;
+}
+
+/* ================= 모둠 편집 도구(격자 묶기) ================= */
 function autoGroups(w, h) {
   const { rows, cols } = state.layout, D = dims();
   const segs = arr => {
@@ -1027,10 +1361,45 @@ function openHelp(title, html) {
 }
 
 /* ================= 이벤트 ================= */
+// 모둠 편집 모드에서 칸을 더블클릭하면 그 칸 위에 작은 입력창을 띄워 모둠 번호를 고친다 (엔터·다른 곳 클릭 = 저장, Esc = 취소)
+function editGroupNo(k) {
+  const btn = $(`#layoutEditor [data-lay="${k}"]`), le = btn && btn.closest('.le'); if (!le || btn.classList.contains('off')) return;
+  const old = state.layout.groups[k];
+  const inp = document.createElement('input');
+  inp.className = 'grp-edit'; inp.type = 'text'; inp.inputMode = 'numeric'; inp.maxLength = 2; inp.value = old ?? ''; inp.setAttribute('aria-label', '모둠 번호');
+  const br = btn.getBoundingClientRect(), lr = le.getBoundingClientRect();   // 소수점 단위까지 칸과 정확히 겹치게
+  Object.assign(inp.style, { left: br.left - lr.left - le.clientLeft + 'px', top: br.top - lr.top - le.clientTop + 'px', width: br.width + 'px', height: br.height + 'px' });
+  inp.addEventListener('input', () => { inp.value = inp.value.replace(/\D/g, ''); });   // 숫자만
+  let done = false;
+  const finish = commit => {
+    if (done) return; done = true;
+    const v = parseInt(inp.value, 10);
+    if (commit) {
+      if (!v || v < 1) toast('유효한 모둠번호가 아닙니다.');   // 비었거나 0이면 편집 전 내용으로 되돌림
+      else if (v !== old) { state.layout.groups[k] = v; save(); }
+    }
+    renderLayout();
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); finish(false); } });
+  inp.addEventListener('blur', () => finish(true));
+  le.appendChild(inp); inp.focus(); inp.select();
+}
+document.addEventListener('dblclick', async e => {
+  const b = e.target.closest('.cell.on'); if (!b || editMode !== 'group' || currentTab() !== 'setup') return;
+  const k = b.dataset.lay;
+  if (state.settings.mode === 'group' && !await guard()) return;
+  editGroupNo(k);
+});
 document.addEventListener('click', async e => {
   const t = e.target.closest('button, [data-goto], .tab-x'); if (!t) return;
 
   if (editing && (t.dataset.tab || t.dataset.goto)) { await notify('자리를 편집하는 중이에요.\n편집 완료를 누른 뒤 이동해 주세요.'); return; }
+  if (t.dataset.act === 'lock-setup') {
+    if (setupLocked || busy) return;
+    if (editing) { await notify('자리를 편집하는 중이에요.\n편집 완료를 누른 뒤 잠가 주세요.'); return; }
+    if (await ask('기초 설정 탭을 잠글까요?\n잠그면 새로고침하기 전까지 기초 설정 탭을 열 수 없어요.', { title: '기초 설정 잠금', ok: '잠그기' })) { setupLocked = true; syncLock(); if (currentTab() === 'setup') showTab('shuffle'); }
+    return;
+  }
   if (t.dataset.tab) { if (!busy) showTab(t.dataset.tab); return; }
   if (t.dataset.goto) { showTab(t.dataset.goto); return; }
   if (t.dataset.view) { if (busy) return; state.view = t.dataset.view; save(); currentTab() === 'final' ? renderFinal() : renderShuffle(); return; }
@@ -1040,13 +1409,7 @@ document.addEventListener('click', async e => {
   // 좌석 편집
   if (t.dataset.lay) {
     const k = t.dataset.lay, [r, c] = k.split(',').map(Number);
-    if (editMode === 'group') {
-      if (isOff(r, c)) return;
-      if (state.settings.mode === 'group' && !await guard()) return;
-      const g = Math.max(1, parseInt($('#grpNo').value, 10) || 1);
-      if (state.layout.groups[k] === g) delete state.layout.groups[k]; else state.layout.groups[k] = g;
-      save(); renderLayout(); return;
-    }
+    if (editMode === 'group') return;   // 모둠 번호는 칸을 더블클릭해서 편집한다
     if (!await guard()) return;
     const a = state.layout.disabled, i = a.indexOf(k);
     i >= 0 ? a.splice(i, 1) : (a.push(k), delete state.layout.groups[k]);
@@ -1165,6 +1528,17 @@ document.addEventListener('click', async e => {
       if (state.settings.mode === 'group' && !await guard()) break;
       const w = Math.max(1, parseInt($('#grpW').value, 10) || 2), h = Math.max(1, parseInt($('#grpH').value, 10) || 2);
       const n = autoGroups(w, h); save(); renderLayout(); toast(`${n}개의 모둠으로 묶었어요.`); break;
+    }
+    case 'grp-size': {
+      const n = +$('#grpSize').value, N = actives().length, plan = groupPlan(N, n);
+      if (!plan || seatCount() !== N) break;   // 버튼이 막혀 있지만 한 번 더 확인
+      if (state.settings.mode === 'group' && !await guard()) break;
+      state.layout.groups = groupSeatsByCount(n); save(); renderLayout();
+      // 알림은 계획이 아니라 실제로 만든 구성(통로 구역 때문에 계획과 다를 수 있음)을 센다
+      const perGroup = {}; Object.values(state.layout.groups).forEach(g => { perGroup[g] = (perGroup[g] || 0) + 1; });
+      const kinds = {}; Object.values(perGroup).forEach(sz => { kinds[sz] = (kinds[sz] || 0) + 1; });
+      const parts = [n, n - 1].filter(k => kinds[k]).map(k => `${k}명 모둠 ${kinds[k]}개`).join(' + ');
+      toast(`${parts}로 묶었어요.`); break;
     }
     case 'grp-clear':
       if (!Object.keys(state.layout.groups).length) break;
@@ -1299,6 +1673,7 @@ document.addEventListener('change', async e => {
     state.layout.rows = rows; state.layout.cols = cols;
     state.layout.disabled = state.layout.disabled.filter(k => { const [r, c] = k.split(',').map(Number); return r < rows && c < cols; });
     pruneConstraints(); save(); renderLayout(); renderConstraints();
+  } else if (t.id === 'grpSize') { updateGroupSizeUI();
   } else if (t.id === 'optMode') {
     // 모둠 → 일반 자리: 모둠 기준(같은 모둠/다른 모둠)으로 만든 붙이기·떼기는 의미가 달라지므로 초기화
     if (t.value === 'seat' && state.settings.mode === 'group' && (state.pairs.length || state.seps.length)) {
@@ -1311,7 +1686,7 @@ document.addEventListener('change', async e => {
     }
     state.settings.mode = t.value; save(); renderOptions();
     if (t.value === 'group' && !Object.keys(state.layout.groups).length)
-      await notify('모둠 배치를 쓰려면 먼저 모둠을 만들어야 해요.\n좌석 배열의 "모둠 편집 모드"에서 직접 칠하거나 "자동 묶기"를 눌러 주세요.');
+      await notify('모둠 배치를 쓰려면 먼저 모둠을 만들어야 해요.\n좌석 배열의 "모둠 편집 모드"에서 칸을 더블클릭해 번호를 입력하거나 "격자 묶기"나 "인원수 묶기"를 눌러 주세요.');
   }
   else if (t.id === 'optPairMode') { state.settings.pairMode = t.value; save(); }
   else if (t.id === 'optMix') {
@@ -1356,4 +1731,5 @@ let startTab = null;
 try { startTab = localStorage.getItem(TAB_KEY); } catch (e) { /* ignore */ }
 if (!['setup', 'shuffle', 'final'].includes(startTab))   // 처음 접속: 작업 상태에 맞춰 시작 탭 결정
   startTab = state.final && !state.slots.some(Boolean) && state.students.length ? 'final' : state.students.length ? 'shuffle' : 'setup';
+syncLock();
 showTab(startTab);

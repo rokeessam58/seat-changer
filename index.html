@@ -24,7 +24,10 @@
 </header>
 
 <nav class="tabs no-print">
-  <button class="tab active" data-tab="setup">① 기초 설정</button>
+  <span class="tab-wrap">
+    <button class="tab active" data-tab="setup">① 기초 설정</button>
+    <button class="tab-lock" id="lockBtn" data-act="lock-setup" aria-label="기초 설정 탭 잠그기" title="기초 설정 탭 잠그기"></button>
+  </span>
   <button class="tab" data-tab="shuffle">② 자리 배치</button>
   <button class="tab" data-tab="final">③ 확정된 자리</button>
 </nav>
@@ -72,7 +75,7 @@
       </div>
 
       <div class="card">
-        <h2>좌석 배열 <button class="help-btn" data-act="layout-help" aria-label="좌석 배열 설명 보기" title="설명 보기">?</button></h2>
+        <h2>좌석 배열 <button class="help-btn" data-act="layout-help" aria-label="좌석 배열 설명 보기" title="설명 보기">?</button><span id="seatMismatch" class="warn-red" hidden></span></h2>
         <div class="row wrap seat-controls">
           <div class="seg left" id="editSeg">
             <button data-edit="seat" class="on">책상 편집 모드</button>
@@ -88,10 +91,15 @@
         <div id="groupTools" class="row wrap grp-tools" hidden>
           <label>가로 <input id="grpW" type="number" min="1" max="8" value="2" class="num"></label>
           <label>× 세로 <input id="grpH" type="number" min="1" max="8" value="2" class="num"></label>
-          <button class="btn small primary" data-act="grp-auto">자동 묶기</button>
-          <span class="sep-v"></span>
-          <label>다음 번호로 개별 지정 : <input id="grpNo" type="number" min="1" max="30" value="1" class="num"></label>
-          <button class="btn small danger" data-act="grp-clear">모둠 지우기</button>
+          <button class="btn small primary" data-act="grp-auto">격자 묶기</button>
+          <span class="or-txt">또는</span>
+          <select id="grpSize" aria-label="모둠 인원수">
+            <option value="3">2~3명</option><option value="4" selected>3~4명</option><option value="5">4~5명</option>
+            <option value="6">5~6명</option><option value="7">6~7명</option><option value="8">7~8명</option>
+          </select>
+          <button class="btn small primary" data-act="grp-size">인원수 묶기</button>
+          <button class="btn small danger" data-act="grp-clear" style="margin-left:auto">모둠 지우기</button>
+          <p id="grpSizeNote" class="warn-red" style="flex-basis:100%;margin:0" hidden></p>
         </div>
         <div id="layoutEditor" class="layout-editor"></div>
       </div>

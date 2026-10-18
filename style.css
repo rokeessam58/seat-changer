@@ -7,7 +7,7 @@
   --bg:#fdf7ff; --card:#fff; --ink:#4a3f5e; --muted:#8a7f9e; --line:#eadff5;
   --brand:#8f78e6; --brand-soft:#d9ccff; --brand-ink:#35206e;
   --good-soft:#bfeed6; --good-ink:#17543a; --danger:#d1495b; --danger-soft:#ffe0e6;
-  --male:#d3e9ff; --male-b:#9fcdf5; --female:#ffdbe9; --female-b:#f4a9c9; --none:#ebe3ff; --none-b:#c9baf5;
+  --male:#dcedff; --male-b:#b0d7f7; --female:#ffe3f0; --female-b:#f9b6d6; --none:#ebe3ff; --none-b:#c9baf5;
   --radius:16px;
   --field-h:1.92rem;   /* 입력창·드롭다운 공통 높이 (학생 명단의 이름 입력창 기준) */
   --font-body:"OmuDaye","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;
@@ -129,15 +129,21 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 .problems ul{margin:4px 0 0;padding-left:18px}
 
 /* 자리 보드 */
-.board{background:#fff;border:2px solid var(--line);border-radius:var(--radius);padding:18px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.board{background:#fff;border:2px solid var(--line);border-radius:var(--radius);padding:18px;display:flex;flex-direction:column;align-items:center;gap:14px;container-type:inline-size}
 .seats-wrap{width:100%;container-type:inline-size;max-width:calc(var(--units)*125px)}
 .board .seats{--gap:10px;--u:calc((100cqw - (var(--cols) - 1) * var(--gap)) / var(--units));display:grid;grid-template-columns:var(--tcols);grid-template-rows:var(--trows);gap:var(--gap);width:100%}
 .podium{background:#c9baf5;color:#35206e;border-radius:12px;padding:5px 40px;letter-spacing:.25em;font-size:1rem}
-.board .podium{font-size:1.45rem;padding:10px 90px;border-radius:16px;letter-spacing:.4em}
+.board .podium{font-size:clamp(.8rem,4.6cqw,1.45rem);padding:.45em 2.4em;border-radius:.7em;letter-spacing:.4em;max-width:100%;white-space:nowrap}   /* 좌석처럼 보드 폭에 따라 커지고 작아짐 */
 .seat{position:relative;min-height:0;border-radius:14px;border:3px solid var(--none-b);background:var(--none);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;min-width:0}
 .seat.M{background:var(--male);border-color:var(--male-b)}
 .seat.F{background:var(--female);border-color:var(--female-b)}
 .seat.hasg{border-color:var(--gc)}
+.seat.gcolor{background:color-mix(in srgb,var(--gc) 28%,#fff);border-color:var(--gc)}   /* 모둠 배치: 칸 색 = 모둠 색 */
+.seat .gdot{position:absolute;top:4px;right:4px;width:.7rem;height:.7rem;border-radius:50%;border:1.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.12)}
+.seat .gdot.M{background:#6aaae8}
+.seat .gdot.F{background:#f27fb8}
+.seat .gdot ~ .pin{right:1.2rem}
+.board.mini .seat .gdot{width:.45rem;height:.45rem;top:2px;right:2px}
 .seat.off{visibility:hidden}
 .seat.vacant{background:#faf7fd;border:3px dashed var(--line)}
 .seat.vacant.hasg{border-color:var(--gc)}
@@ -153,7 +159,7 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 .board.mini .seat{border-width:2px;border-radius:7px}
 .board.mini .seat .nm{font-size:clamp(.55rem,.95vw,.85rem)}
 .board.mini .seat .no,.board.mini .seat .pin,.board.mini .seat .grp{display:none}
-.board.mini .podium{padding:4px 34px;font-size:.95rem;border-radius:10px;letter-spacing:.3em}
+.board.mini .podium{padding:.3em 1.8em;font-size:clamp(.6rem,5cqw,.95rem);border-radius:.6em;letter-spacing:.3em}
 .all-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px}
 .slot-card{background:var(--card);border:3px solid var(--line);border-radius:var(--radius);padding:10px}
 .slot-card header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
@@ -280,7 +286,7 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 #pickerQuick .seg{margin-left:0}
 .picker-grid{display:grid;width:max-content;max-width:100%;margin:10px auto}
 
-#grpW,#grpH,#grpNo{width:57.6px}   /* 기본(.num 72px)의 80% */
+#grpW,#grpH{width:57.6px}   /* 기본(.num 72px)의 80% */
 
 /* 모둠 편집 도구의 두 버튼(자동 묶기·모둠 지우기)은 글꼴·색과 상관없이 같은 높이로 고정 */
 #groupTools .btn{height:1.92rem;padding-top:0;padding-bottom:0;line-height:1.2}
@@ -378,10 +384,28 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 .seat[data-swap]{cursor:pointer}
 .seat[data-swap]:hover{filter:brightness(.96)}
 .seat.swap-pre{--swap-c:var(--brand);outline:3px dashed var(--swap-c);outline-offset:-5px;animation:swapBlink 1s ease-in-out infinite}
-.seat.M.swap-pre{--swap-c:#3f8fe0}   /* 남학생(파란 칸): 파란 점선 */
-.seat.F.swap-pre{--swap-c:#e04a8a}   /* 여학생(붉은 칸): 붉은 점선 */
+.seat.M.swap-pre{--swap-c:#6aaae8}   /* 남학생(파란 칸): 파란 점선 */
+.seat.F.swap-pre{--swap-c:#f27fb8}   /* 여학생(붉은 칸): 붉은 점선 */
 @keyframes swapBlink{0%,100%{outline-color:var(--swap-c)}50%{outline-color:color-mix(in srgb,var(--swap-c) 18%,transparent)}}
 .edit-hint{text-align:center;color:var(--brand);margin:0 0 8px}
 @media (prefers-reduced-motion:reduce){.seat.swap-pre{animation:none}}
 
 .edit-group{margin-left:auto;display:inline-flex;gap:8px}   /* 취소·편집 버튼은 툴바 오른쪽 끝에 함께 */
+
+/* 빨간 안내 글씨(좌석 배열 제목 옆, 인원수 묶기 아래) */
+.warn-red{color:var(--danger);font-family:var(--font-body);font-weight:400;font-size:.9rem}
+h2 .warn-red{margin-left:.6rem;vertical-align:middle}
+
+/* 기초 설정 탭 잠금: 풀린 자물쇠 → 누르면 확인 후 잠김(새로고침 전까지 접근 불가) */
+.tab-wrap{position:relative;display:flex;min-width:0}
+.tab-wrap .tab{padding-right:32px}
+.tab-lock{position:absolute;top:3px;right:6px;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.tab-lock svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.tab-lock:hover{background:rgba(53,32,110,.12);color:var(--brand)}
+.tab-wrap.locked .tab,.tab-wrap.locked .tab-lock{cursor:not-allowed;opacity:.6}
+.tab-wrap.locked .tab-lock:hover{background:none;color:var(--muted)}
+
+/* 모둠 번호 더블클릭 편집: 칸 위에 겹쳐 뜨는 작은 입력창 */
+.le{position:relative}
+.le .grp-edit{position:absolute;box-sizing:border-box;margin:0;padding:0;border:2px solid var(--brand);border-radius:9px;background:#fff;color:var(--text,#3d3252);text-align:center;font:inherit;font-family:var(--font-cute);font-weight:700;font-size:1rem;outline:none;z-index:2}
+.grp-tools .or-txt{color:var(--muted);font-size:.9rem}
