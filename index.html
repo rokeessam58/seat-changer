@@ -184,6 +184,10 @@
       <button class="btn" data-act="fill-all">빈 슬롯 모두 채우기</button>
       <button class="btn" data-act="clear-slot">이 슬롯 비우기</button>
       <button class="btn good" data-act="confirm-slot">이 자리로 확정</button>
+      <span class="edit-group">
+        <button class="btn" id="editCancelBtn" data-act="edit-cancel" hidden>취소</button>
+        <button class="btn" id="editSlotBtn" data-act="edit-slot">편집</button>
+      </span>
     </div>
     <div id="problems" class="problems no-print" hidden></div>
     <div id="shuffleArea"></div>
@@ -201,6 +205,16 @@
       <button class="btn danger" data-act="drop-final">확정 취소(삭제)</button>
     </div>
     <div id="finalArea"></div>
+
+    <div id="historyCard" class="card no-print">
+      <h2>확정 이력</h2>
+      <div class="row wrap">
+        <label class="chk"><input id="optHistory" type="checkbox"> 이력 보관</label>
+        <label>최근 <select id="histMax"><option value="5">5</option><option value="10">10</option><option value="20">20</option></select> 개까지</label>
+        <button class="btn small danger" id="historyClear" data-act="history-clear" style="margin-left:auto">이력 모두 삭제</button>
+      </div>
+      <ul id="historyList" class="chips"></ul>
+    </div>
   </section>
 </main>
 
@@ -229,6 +243,13 @@
   <button class="x-close" data-act="help-close" aria-label="닫기"></button>
   <h3 id="helpTitle"></h3>
   <div id="helpBody"></div>
+</dialog>
+
+<!-- 확정 이력 보기 -->
+<dialog id="historyView" class="modal help">
+  <button class="x-close" data-act="hist-close" aria-label="닫기"></button>
+  <h3 id="historyViewTitle"></h3>
+  <div id="historyViewBody"></div>
 </dialog>
 
 <!-- 배치 연출 -->

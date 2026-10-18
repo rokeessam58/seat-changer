@@ -366,3 +366,22 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 }
 
 #modeHint{white-space:pre-line}   /* 안내 문구의 줄바꿈 반영 */
+
+/* 확정 이력 */
+#historyCard{margin-top:16px}
+#historyList .hist-date{white-space:nowrap;font-family:var(--font-cute);color:#6b55c4}
+#historyList .hist-note{flex:1;min-width:0}
+#historyView{width:min(94vw,860px);max-width:min(94vw,860px)}
+#historyViewBody .board{border:0;padding:6px 0 0}
+
+/* 자리 편집(맞교환): 학생 칸을 누를 수 있고, 먼저 고른 칸은 안쪽 점선이 깜빡임(범위 선택의 첫 모서리와 같은 방식) */
+.seat[data-swap]{cursor:pointer}
+.seat[data-swap]:hover{filter:brightness(.96)}
+.seat.swap-pre{--swap-c:var(--brand);outline:3px dashed var(--swap-c);outline-offset:-5px;animation:swapBlink 1s ease-in-out infinite}
+.seat.M.swap-pre{--swap-c:#3f8fe0}   /* 남학생(파란 칸): 파란 점선 */
+.seat.F.swap-pre{--swap-c:#e04a8a}   /* 여학생(붉은 칸): 붉은 점선 */
+@keyframes swapBlink{0%,100%{outline-color:var(--swap-c)}50%{outline-color:color-mix(in srgb,var(--swap-c) 18%,transparent)}}
+.edit-hint{text-align:center;color:var(--brand);margin:0 0 8px}
+@media (prefers-reduced-motion:reduce){.seat.swap-pre{animation:none}}
+
+.edit-group{margin-left:auto;display:inline-flex;gap:8px}   /* 취소·편집 버튼은 툴바 오른쪽 끝에 함께 */

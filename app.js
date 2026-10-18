@@ -21,7 +21,8 @@ const defaultState = () => ({
   fixed: [],               // {s,r,c}
   ranges: [],              // {s,r1,r2,c1,c2}
   pairHistory: [],         // ["작은id-큰id"] 이전에 짝(또는 같은 모둠)이었던 쌍
-  settings: { mode: 'seat', pairMode: 'side', mix: false, avoidPrev: true, avoidPast: true, animation: true },
+  history: [],             // 확정 이력(최신이 앞): {hid, at, seats, mode, warnings, snap:{students,layout,fixed}, note}
+  settings: { mode: 'seat', pairMode: 'side', mix: false, avoidPrev: true, avoidPast: true, animation: true, keepHistory: false, historyMax: 10 },
   slots: Array(SLOT_N).fill(null),   // {seats:{id:[r,c]}, warnings:[], at, mode}
   final: null,
   activeSlot: 0,
@@ -38,6 +39,7 @@ function migrate(o) {
   s.layout = Object.assign(defaultState().layout, (o && o.layout) || {});
   if (!s.layout.groups) s.layout.groups = {};
   if (!Array.isArray(s.pairHistory)) s.pairHistory = [];
+  if (!Array.isArray(s.history)) s.history = [];
   delete s.settings.sepDist;   // 예전 '떼기 기본 반경' 옵션은 제거됨
   s.seps = (s.seps || []).map(p => ({ ...p, d: normSep(p.d) }));
   s.pairs = (s.pairs || []).map(p => ({ ...p, mode: p.mode || s.settings.pairMode }));
@@ -90,6 +92,7 @@ function enforceMix() {   // 성별 미지정 학생이 있으면 '남녀 섞기
 }
 const pairKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 let busy = false;
+let editing = null;   // 자리 편집 중이면 {slot, draft:{학생id:[행,열]}, pending:맞교환 첫 번째로 고른 학생id|null, changed}
 let editMode = 'seat';
 
 /* ---- 통로(전부 빈 줄/열)를 뺀 줄·열 번호 ---- */
@@ -570,7 +573,7 @@ function pairsOfRecord(rec) {
 }
 
 /* ================= 자리표 그리기 ================= */
-function boardHTML(rec, { mini = false } = {}) {
+function boardHTML(rec, { mini = false, edit = null } = {}) {
   const { rows, cols } = state.layout, view = state.view, gmode = rec && rec.mode === 'group';
   const occ = {};
   if (rec) for (const [id, [r, c]] of Object.entries(rec.seats)) if (byId(+id)) occ[r + ',' + c] = byId(+id);
@@ -584,7 +587,8 @@ function boardHTML(rec, { mini = false } = {}) {
     const gs = g ? `style="--gc:${gcolor(g)}"` : '', gcls = g ? 'hasg' : '', gb = g ? `<i class="grp">모둠 ${g}</i>` : '';
     const s = occ[r + ',' + c];
     if (!s) { cells += `<div class="seat vacant ${gcls}" ${gs}>${gb}</div>`; continue; }
-    cells += `<div class="seat ${s.gender} ${gcls}" ${gs} data-sid="${s.id}" data-name="${esc(label(s))}" data-no="${esc(s.no)}">
+    const sw = edit ? `data-swap="${s.id}" role="button" tabindex="0"` : '', pre = edit && edit.pending === s.id ? 'swap-pre' : '';
+    cells += `<div class="seat ${s.gender} ${gcls} ${pre}" ${gs} ${sw} data-sid="${s.id}" data-name="${esc(label(s))}" data-no="${esc(s.no)}">
       <span class="no">${esc(s.no)}</span><span class="nm">${esc(label(s))}</span>${fixedIds.has(s.id) ? '<i class="pin">고정</i>' : ''}${gb}</div>`;
   }
   const D = dims();
@@ -605,16 +609,23 @@ function renderShuffle() {
   $('#showAll').checked = state.showAll;
   $('#optAnim').checked = state.settings.animation;
   $('#slotBar').innerHTML = state.slots.map((s, i) =>
-    `<button class="slot ${s ? 'filled' : ''} ${i === state.activeSlot && !state.showAll ? 'active' : ''}" data-slot="${i}" ${state.showAll ? 'disabled' : ''}>슬롯 ${i + 1}${s ? ' ♥' : ''}</button>`).join('');
+    `<button class="slot ${s ? 'filled' : ''} ${i === state.activeSlot && !state.showAll ? 'active' : ''}" data-slot="${i}" ${state.showAll || editing ? 'disabled' : ''}>슬롯 ${i + 1}${s ? ' ♥' : ''}</button>`).join('');
   const errs = validate(), pb = $('#problems');
   pb.hidden = !errs.length; pb.classList.toggle('bad', !!errs.length);
   // 배치할 수 없는 상태(학생 수 > 좌석 수 등)에서는 배치 버튼을 막는다. 사유는 위 안내 상자에 표시됨
   const blocked = errs.length > 0;
   const setDis = (act, v, tip) => { const b = $(`.toolbar [data-act="${act}"]`); if (b) { b.disabled = v; b.title = v && tip ? tip : ''; } };
-  setDis('shuffle', blocked || state.showAll, blocked ? '위 안내를 먼저 해결해 주세요' : '"한 번에 보기"에서는 각 슬롯의 버튼을 사용하세요');
-  setDis('fill-all', blocked, '위 안내를 먼저 해결해 주세요');
-  setDis('clear-slot', state.showAll, '"한 번에 보기"에서는 각 슬롯의 버튼을 사용하세요');
-  setDis('confirm-slot', state.showAll, '"한 번에 보기"에서는 각 슬롯의 버튼을 사용하세요');
+  const editTip = '편집 중에는 사용할 수 없어요. 편집 완료를 먼저 눌러 주세요';
+  setDis('shuffle', blocked || state.showAll || !!editing, editing ? editTip : blocked ? '위 안내를 먼저 해결해 주세요' : '"한 번에 보기"에서는 각 슬롯의 버튼을 사용하세요');
+  setDis('fill-all', blocked || !!editing, editing ? editTip : '위 안내를 먼저 해결해 주세요');
+  setDis('clear-slot', state.showAll || !!editing, editing ? editTip : '"한 번에 보기"에서는 각 슬롯의 버튼을 사용하세요');
+  setDis('confirm-slot', state.showAll || !!editing, editing ? editTip : '"한 번에 보기"에서는 각 슬롯의 버튼을 사용하세요');
+  $('#showAll').disabled = !!editing;
+  $('#editCancelBtn').hidden = !editing;
+  const eb = $('#editSlotBtn');
+  eb.textContent = editing ? '편집 완료' : '편집'; eb.classList.toggle('primary', !!editing);
+  eb.disabled = !editing && (state.showAll || !state.slots[state.activeSlot]);
+  eb.title = eb.disabled ? (state.showAll ? '"한 번에 보기"에서는 사용할 수 없어요' : '편집할 자리가 없어요') : '';
   pb.innerHTML = errs.length ? `<b>배치 전에 확인해 주세요</b><ul>${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
   const area = $('#shuffleArea');
   const modeTxt = s => (s.mode === 'group' ? ' · 모둠 배치' : '');
@@ -629,8 +640,9 @@ function renderShuffle() {
       </div>`).join('') + '</div>';
   } else {
     const s = state.slots[state.activeSlot];
+    const ed = editing && editing.slot === state.activeSlot ? editing : null;
     area.innerHTML = s
-      ? `<div id="slotcard-${state.activeSlot}">${boardHTML(s)}<p class="meta">슬롯 ${state.activeSlot + 1} · ${fmtTime(s.at)} 배치${modeTxt(s)}</p>${warnHTML(s.warnings)}</div>`
+      ? `<div id="slotcard-${state.activeSlot}">${ed ? '<p class="edit-hint">자리를 바꿀 학생을 차례로 눌러 주세요. 두 학생의 자리가 서로 바뀌어요.</p>' : ''}${ed ? boardHTML({ ...s, seats: ed.draft }, { edit: { pending: ed.pending } }) : boardHTML(s)}<p class="meta">슬롯 ${state.activeSlot + 1} · ${fmtTime(s.at)} 배치${modeTxt(s)}${s.edited ? ' · 편집됨' : ''}</p>${ed ? '' : warnHTML(s.warnings)}</div>`
       : `<div class="empty-board">${josa('슬롯 ' + (state.activeSlot + 1), '은/는')} 비어 있어요.<br>위의 <b>자리 배치!</b> 버튼을 눌러 보세요.</div>`;
   }
 }
@@ -728,7 +740,8 @@ async function actConfirm(i) {
   if (!await ask(`슬롯 ${i + 1}의 자리를 최종 자리로 확정할까요?\n나머지 임시 저장 자리는 모두 삭제돼요.`, { title: '최종 자리 확정', ok: '확정하기' })) return;
   const add = pairsOfRecord(s);
   state.pairHistory = [...new Set([...state.pairHistory, ...add])];
-  state.final = { seats: s.seats, warnings: s.warnings, at: Date.now(), mode: s.mode };
+  if (state.settings.keepHistory && state.final) pushHistory(state.final);   // 이전 확정 자리를 이력으로 보관
+  state.final = { seats: s.seats, warnings: s.warnings, at: Date.now(), mode: s.mode, snap: snapshotNow() };
   state.slots = Array(SLOT_N).fill(null); state.activeSlot = 0;
   save(); showTab('final'); toast(`최종 자리가 저장되었어요. (짝 기록 +${add.length}쌍)`);
 }
@@ -737,9 +750,45 @@ async function actConfirm(i) {
 function renderFinal() {
   syncViewSeg();
   const f = state.final, area = $('#finalArea');
-  if (!f) { area.innerHTML = '<div class="empty-board">아직 확정된 자리가 없어요.<br>② 자리 배치에서 마음에 드는 슬롯을 확정해 주세요.</div>'; return; }
+  if (!f) { area.innerHTML = '<div class="empty-board">아직 확정된 자리가 없어요.<br>② 자리 배치에서 마음에 드는 슬롯을 확정해 주세요.</div>'; renderHistory(); return; }
   area.innerHTML = `<div class="print-title">${esc(state.className || '우리반')} 자리 배치표</div>${boardHTML(f)}
     <p class="meta">${esc(state.className || '')} · ${fmtTime(f.at)} 확정${f.mode === 'group' ? ' · 모둠 배치' : ''} · ${state.view === 'teacher' ? '교사용(교탁에서 본 시점)' : '학생용(교탁을 바라보는 시점)'}</p>${warnHTML(f.warnings)}`;
+  renderHistory();
+}
+
+/* ================= 확정 이력 ================= */
+const clone = o => JSON.parse(JSON.stringify(o));
+// 확정 시점의 명단·좌석 배열·고정석을 복사해 둔다 (나중에 명단이 바뀌어도 이력 화면이 그때 모습 그대로 보이도록)
+const snapshotNow = () => ({ students: clone(state.students), layout: clone(state.layout), fixed: clone(state.fixed) });
+function withSnapshot(snap, fn) {   // 보드 그리기 함수가 state를 읽으므로, 잠깐 이력 시점의 값으로 바꿔서 그린다
+  const keep = { students: state.students, layout: state.layout, fixed: state.fixed };
+  state.students = snap.students; state.layout = snap.layout; state.fixed = snap.fixed || [];
+  try { return fn(); } finally { Object.assign(state, keep); }
+}
+function pushHistory(f) {
+  state.history.unshift({
+    hid: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    at: f.at, seats: f.seats, mode: f.mode, warnings: f.warnings || [], snap: f.snap || snapshotNow(), note: '',
+  });
+  state.history = state.history.slice(0, state.settings.historyMax);   // 최근 N개만 보관
+}
+const histById = hid => state.history.find(h => h.hid === hid);
+function renderHistory() {
+  const st = state.settings;
+  $('#optHistory').checked = st.keepHistory; $('#histMax').value = String(st.historyMax);
+  $('#historyClear').hidden = !state.history.length;
+  $('#historyList').innerHTML = state.history.length
+    ? state.history.map(h => `<li><span class="hist-date">${fmtTime(h.at)}${h.mode === 'group' ? ' · 모둠' : ''}</span>
+        <input type="text" class="hist-note" data-hid="${h.hid}" value="${esc(h.note)}" placeholder="메모" maxlength="30">
+        <button class="btn small" data-act="history-view" data-hid="${h.hid}">보기</button>
+        <button class="x" data-act="history-del" data-hid="${h.hid}" title="삭제">✕</button></li>`).join('')
+    : `<li class="empty">${st.keepHistory ? '아직 보관된 이력이 없어요. 새로 확정하면 이전 확정 자리가 여기에 쌓여요.' : '이력 보관이 꺼져 있어요.'}</li>`;
+}
+function openHistoryView(h) {
+  $('#historyViewTitle').textContent = `확정 이력 — ${fmtTime(h.at)}${h.mode === 'group' ? ' · 모둠 배치' : ''}`;
+  $('#historyViewBody').innerHTML = withSnapshot(h.snap, () => boardHTML(h)) +
+    `<p class="meta">${h.note ? esc(h.note) + ' · ' : ''}${state.view === 'teacher' ? '교사용(교탁에서 본 시점)' : '학생용(교탁을 바라보는 시점)'}</p>`;
+  $('#historyView').showModal();
 }
 
 /* ================= 탭 ================= */
@@ -773,7 +822,7 @@ function loadJson(file) {
   };
   fr.readAsText(file);
 }
-function renderAllCurrent() { showTab(currentTab() || 'setup'); }
+function renderAllCurrent() { editing = null; showTab(currentTab() || 'setup'); }
 
 /* ================= 엑셀 ================= */
 async function needXlsx() { if (typeof XLSX === 'undefined') { await notify('엑셀 라이브러리를 불러오지 못했어요.'); return false; } return true; }
@@ -981,6 +1030,7 @@ function openHelp(title, html) {
 document.addEventListener('click', async e => {
   const t = e.target.closest('button, [data-goto], .tab-x'); if (!t) return;
 
+  if (editing && (t.dataset.tab || t.dataset.goto)) { await notify('자리를 편집하는 중이에요.\n편집 완료를 누른 뒤 이동해 주세요.'); return; }
   if (t.dataset.tab) { if (!busy) showTab(t.dataset.tab); return; }
   if (t.dataset.goto) { showTab(t.dataset.goto); return; }
   if (t.dataset.view) { if (busy) return; state.view = t.dataset.view; save(); currentTab() === 'final' ? renderFinal() : renderShuffle(); return; }
@@ -1051,6 +1101,14 @@ document.addEventListener('click', async e => {
         <li>모둠 배치에서는 반경 대신 <b>"다른 모둠"</b>이면 떼어 앉힌 것으로 봐요.</li>
       </ul>`); break;
     case 'help-close': $('#helpModal').close(); break;
+    case 'hist-close': $('#historyView').close(); break;
+    case 'history-view': { const h = histById(t.dataset.hid); if (h) openHistoryView(h); break; }
+    case 'history-del':
+      if (await ask('이 확정 이력을 삭제할까요?' + '\n' + '(되돌릴 수 없어요)', { title: '이력 삭제', ok: '삭제', danger: true })) { state.history = state.history.filter(x => x.hid !== t.dataset.hid); save(); renderHistory(); }
+      break;
+    case 'history-clear':
+      if (state.history.length && await ask(`보관된 이력 ${state.history.length}개를 모두 삭제할까요?\n(되돌릴 수 없어요)`, { title: '이력 모두 삭제', ok: '모두 삭제', danger: true })) { state.history = []; save(); renderHistory(); }
+      break;
     case 'save-json': saveJson(); break;
     case 'load-json': $('#fileJson').click(); break;
     case 'xlsx-template': templateXlsx(); break;
@@ -1167,6 +1225,21 @@ document.addEventListener('click', async e => {
       if (!state.slots[idx]) break;
       state.slots[idx] = null; save(); renderShuffle(); break;
     case 'confirm-slot': actConfirm(idx); break;
+    case 'edit-cancel':   // 편집 취소: 바꾼 내용을 버리고 슬롯은 그대로 둔다
+      if (!editing) break;
+      if (editing.changed && !await ask('편집한 내용을 모두 버릴까요?' + '\n' + '(슬롯은 편집 전 상태로 남아요)', { title: '편집 취소', ok: '버리기', danger: true })) break;
+      editing = null; renderShuffle(); break;
+    case 'edit-slot': {
+      if (editing) {   // 편집 완료: 바뀐 내용을 슬롯에 반영 (규칙 위반 경고는 따로 띄우지 않음)
+        const slot = state.slots[editing.slot];
+        if (slot && editing.changed) { slot.seats = editing.draft; slot.warnings = []; slot.edited = true; save(); }
+        editing = null; renderShuffle(); break;
+      }
+      const slot = state.slots[state.activeSlot];
+      if (!slot || state.showAll) break;
+      editing = { slot: state.activeSlot, draft: Object.fromEntries(Object.entries(slot.seats).map(([k, v]) => [k, [...v]])), pending: null, changed: false };
+      renderShuffle(); break;
+    }
     case 'print': window.print(); break;
     case 'export-final': exportFinalXlsx(); break;
     case 'drop-final':
@@ -1177,6 +1250,19 @@ document.addEventListener('click', async e => {
 // ✕(탭 닫기 표시)는 키보드로도 누를 수 있게
 document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('tab-x')) { e.preventDefault(); e.target.click(); }
+});
+
+// 자리 편집: 바꿀 학생을 하나 누르면 그 칸의 점선이 깜빡이고, 다른 학생을 누르면 두 학생의 자리가 서로 바뀐다
+function swapClick(id) {
+  const ed = editing; if (!ed) return;
+  if (ed.pending === null) ed.pending = id;
+  else if (ed.pending === id) ed.pending = null;   // 같은 학생을 다시 누르면 선택 해제
+  else { const d = ed.draft, a = d[ed.pending], b = d[id]; d[ed.pending] = b; d[id] = a; ed.pending = null; ed.changed = true; }
+  renderShuffle();
+}
+document.addEventListener('click', e => { const el = e.target.closest && e.target.closest('.seat[data-swap]'); if (el && editing) swapClick(+el.dataset.swap); });
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.seat[data-swap]') && editing) { e.preventDefault(); swapClick(+e.target.dataset.swap); }
 });
 
 // 입력 변경
@@ -1237,6 +1323,13 @@ document.addEventListener('change', async e => {
   else if (t.id === 'optAvoid') { state.settings.avoidPrev = t.checked; save(); }
   else if (t.id === 'optPast') { state.settings.avoidPast = t.checked; save(); }
   else if (t.id === 'optAnim') { state.settings.animation = t.checked; save(); }
+  else if (t.id === 'optHistory') { state.settings.keepHistory = t.checked; save(); renderHistory(); }
+  else if (t.id === 'histMax') {
+    const n = +t.value;
+    if (state.history.length > n && !await ask(`최근 ${n}개만 보관하면 오래된 이력 ${state.history.length - n}개가 삭제돼요.\n계속할까요?`, { title: '오래된 이력이 삭제돼요', ok: '계속', danger: true })) { t.value = String(state.settings.historyMax); return; }
+    state.settings.historyMax = n; state.history = state.history.slice(0, n); save(); renderHistory();
+  }
+  else if (t.classList.contains('hist-note')) { const h = histById(t.dataset.hid); if (h) { h.note = t.value.trim(); save(); } }
   else if (t.id === 'showAll') { state.showAll = t.checked; save(); renderShuffle(); }
   else if (t.id === 'fileJson') { if (t.files[0]) loadJson(t.files[0]); t.value = ''; }
   else if (t.id === 'fileXlsx') { if (t.files[0]) importXlsx(t.files[0]); t.value = ''; }
