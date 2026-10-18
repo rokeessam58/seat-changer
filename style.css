@@ -78,7 +78,7 @@ textarea{width:100%;resize:vertical}
 .guide summary{cursor:pointer;color:var(--brand);font-family:var(--font-cute)}
 .guide li{margin:4px 0}
 
-.table-wrap{max-height:340px;overflow:auto;margin-top:12px;border:2px solid var(--line);border-radius:12px}
+.table-wrap{flex:1 1 0;min-height:0;overflow:auto;margin-top:12px;margin-bottom:6px;border:2px solid var(--line);border-radius:12px}
 .tbl{width:100%;border-collapse:collapse}
 .tbl th{position:sticky;top:0;background:#f6efff;text-align:left;padding:4px 8px;font-family:var(--font-cute);font-weight:700;color:#6b55c4}
 #studentTable th:nth-child(2),#studentTable th:nth-child(3){padding-left:13px}
@@ -105,7 +105,7 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 /* 좌석 편집기 */
 .layout-editor{margin-top:6px;overflow:auto}
 .le{--seat-w:calc(3.2 * .78rem);display:grid;width:100%;gap:4px;padding:6px 0}   /* 행 번호 칸은 --seat-w(약 43.9px) 고정, 좌석 열은 영역 폭을 꽉 채우도록 늘어남(최소 --seat-w) */
-.le .podium-bar{grid-column:1/-1;contain:inline-size;padding:5px 8px;white-space:nowrap;overflow:hidden}   /* 막대 글씨가 열 너비를 늘리지 않게 함 */
+.le .podium-bar{grid-column:1/-1;contain:inline-size;padding:0 8px;height:36px;line-height:36px;white-space:nowrap;overflow:hidden}   /* 막대 글씨가 열 너비를 늘리지 않게 함 */
 .le button{border:2px solid var(--line);background:#fff;border-radius:9px;min-width:var(--seat-w);height:36px;cursor:pointer;font-family:var(--font-cute)}
 .le button.cell.on{background:var(--gc,var(--none));border-color:var(--gc-b,var(--none-b))}
 .le button.cell.off{background:repeating-linear-gradient(45deg,#f6f1fb,#f6f1fb 4px,#fff 4px,#fff 8px);color:#d3c8e2}
@@ -156,7 +156,6 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 .board.mini .podium{padding:4px 34px;font-size:.95rem;border-radius:10px;letter-spacing:.3em}
 .all-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px}
 .slot-card{background:var(--card);border:3px solid var(--line);border-radius:var(--radius);padding:10px}
-.slot-card.active{border-color:var(--brand)}
 .slot-card header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
 .slot-card header b{flex:1;font-family:var(--font-cute);font-weight:700;font-size:1.1rem;color:#6b55c4}
 .empty-board{padding:50px 20px;text-align:center;color:var(--muted);background:#fff;border:3px dashed var(--line);border-radius:var(--radius)}
@@ -302,3 +301,68 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 .le button.cell.off::before,.le button.cell.off::after{content:'';position:absolute;left:50%;top:50%;width:14px;height:2px;border-radius:2px;background:currentColor}
 .le button.cell.off::before{transform:translate(-50%,-50%) rotate(45deg)}
 .le button.cell.off::after{transform:translate(-50%,-50%) rotate(-45deg)}
+
+/* 기초 설정: 좌석이 4행 이하여도 4행일 때의 영역 높이로 고정(두 카드 모두), 5행 이상은 좌석 배열을 따라 늘어남.
+   명단표 하단 경계 = 좌석 마지막 행(4행 이하면 4행) 하단 경계 */
+.layout-editor{min-height:248px}   /* = 여백 12 + 교탁 36 + 열 머리글 36 + 책상 4행 144 + 칸 간격 20 */
+.grid12>.card:first-child{display:flex;flex-direction:column}
+@media (max-width:900px){
+  /* 카드가 위아래로 쌓일 때는 표가 자기 높이를 갖도록 */
+  .table-wrap{flex:none;max-height:340px;margin-bottom:0}
+  .layout-editor{min-height:0}
+}
+
+/* 학생 명단 표: 열 폭을 고정해서 학생이 없을 때도 머리글 위치가 바뀌지 않게 함 */
+#studentTable{table-layout:fixed}
+#studentTable th:nth-child(1){width:46px}
+#studentTable th:nth-child(3){width:66px}
+#studentTable th:nth-child(4){width:48px}
+#studentTable th:nth-child(5){width:36px}
+/* 학생이 없을 때의 안내 문구: 학생 한 줄과 같은 높이·위치, 아래 가로선 없음 */
+#studentTable .empty-cell{border-bottom:0;padding:3px 6px 3px 12px;color:var(--muted)}
+#studentTable .empty-cell div{height:var(--field-h);display:flex;align-items:center}
+
+/* 고정석·범위 제한 카드의 추가 버튼도 줄의 오른쪽 끝으로 (줄이 바뀌어도 오른쪽에 붙음) */
+[data-act=add-fixed],[data-act=add-range]{margin-left:auto}
+
+/* 상단 탭 글씨: 폭이 좁아지면 어절(띄어쓰기) 단위로만 줄바꿈 */
+.tab{word-break:keep-all;overflow-wrap:normal}
+
+/* 결번 열: 머리글 글씨와 체크박스를 같은 중앙선에 맞춤 */
+#studentTable th.vcol,#studentTable td.vcol{text-align:center}
+#studentTable td.vcol input[type=checkbox]{display:block;margin:0 auto}
+/* 결번으로 체크된 줄: 입력·선택은 비활성, 흐리게 */
+#studentTable tr.vacant-row td.no{opacity:.5}
+#studentTable tr.vacant-row input:disabled,#studentTable tr.vacant-row select:disabled{background:#f3eef8;color:var(--muted);cursor:not-allowed}
+
+/* 학생 명단의 전체 삭제 버튼은 줄의 오른쪽 끝으로 */
+[data-act=clear-students]{margin-left:auto}
+
+/* 여러 명 붙여넣기: 열린 동안 선택된 모양(눌러도 반응 없음), 추가·닫기는 줄 오른쪽 끝 */
+#bulkApplyBtn{margin-left:auto}
+#bulkOpenBtn.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-ink);pointer-events:none;cursor:default;transform:none}
+/* 브라우저 탭의 닫기 표시처럼: 글씨 옆의 작은 ✕ (버튼 자체는 눌리지 않고 ✕만 눌림) */
+.tab-x{pointer-events:auto;cursor:pointer;position:relative;display:inline-block;width:1.15rem;height:1.15rem;margin-left:.4rem;vertical-align:middle;border-radius:50%;transition:background .15s}
+.tab-x::before,.tab-x::after{content:'';position:absolute;left:50%;top:50%;width:.6rem;height:2px;border-radius:2px;background:currentColor}
+.tab-x::before{transform:translate(-50%,-50%) rotate(45deg)}
+.tab-x::after{transform:translate(-50%,-50%) rotate(-45deg)}
+.tab-x:hover,.tab-x:focus-visible{background:rgba(53,32,110,.16);outline:none}
+
+/* 여러 명 붙여넣기 입력창: 학생 명단 표와 같은 자리·같은 크기로 표 대신 표시됨 */
+.bulk{margin:12px 0 6px;flex:1 1 0;min-height:0;display:flex}
+.bulk textarea{flex:1;min-height:0;height:100%;resize:none;border-radius:12px}
+@media (max-width:900px){
+  .bulk{flex:none;display:block;margin-bottom:0}
+  .bulk textarea{height:240px}
+}
+
+/* 설정 화면 아래쪽: 넓은 화면에서는 배치 옵션을 왼쪽 25% 세로 칸으로, 조건 카드 4개를 오른쪽에 2×2로 */
+.grid12+.opts-layout{margin-top:16px}
+@media (min-width:1240px){
+  .opts-layout{display:grid;grid-template-columns:25% minmax(0,1fr);gap:16px;align-items:stretch}
+  .opts-layout>.card{margin-bottom:0;min-width:0}
+  .opts-layout>.grid2{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:0}
+  .opts-layout .opts{flex-direction:column;align-items:flex-start;gap:12px}
+}
+
+#modeHint{white-space:pre-line}   /* 안내 문구의 줄바꿈 반영 */

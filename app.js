@@ -64,6 +64,8 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const byId = id => state.students.find(s => s.id === id);
+// 결번(vacant)으로 체크한 번호는 없는 학생으로 취급: 인원수·배치·선택 목록에서 모두 제외
+const actives = () => state.students.filter(s => !s.vacant);
 const label = s => s ? (s.name || `${s.no}번`) : '(삭제됨)';
 // 조사 자동 선택: josa('철수', '이/가') → '철수가', josa('영희', '이/가') → '영희가', josa('민준', '이/가') → '민준이'
 // pair는 '받침 있을 때/받침 없을 때' 순서: 이/가, 은/는, 을/를, 과/와, 으로/로 (으로/로는 받침 없음·ㄹ받침이면 '로')
@@ -81,7 +83,7 @@ const seatCount = () => state.layout.rows * state.layout.cols - state.layout.dis
 const groupOf = (r, c) => state.layout.groups[r + ',' + c];
 // 범위 제한: 사각형({r1,r2,c1,c2}) 또는 자유 지정({cells:["r,c",...]})
 const rangeHas = (g, r, c) => (g.cells ? g.cells.includes(r + ',' + c) : r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2);
-const mixAvailable = () => !state.students.some(s => !s.gender);
+const mixAvailable = () => !actives().some(s => !s.gender);
 function enforceMix() {   // 성별 미지정 학생이 있으면 '남녀 섞기'를 자동 해제
   if (state.settings.mix && !mixAvailable()) { state.settings.mix = false; save(); return true; }
   return false;
@@ -160,24 +162,35 @@ async function guard() {
 /* ================= ① 기초 설정 렌더 ================= */
 function renderSetup() { renderStudents(); renderLayout(); renderOptions(); renderConstraints(); }
 
+// 여러 명 붙여넣기 창 열기/닫기: 열린 동안 학생 표 자리에 입력창이 대신 뜨고, '여러 명 붙여넣기' 버튼은 선택된 모양(탭처럼 ✕가 붙음)으로 눌리지 않고,
+// 추가 버튼이 같은 줄 오른쪽에 나타나며 전체 삭제는 숨겨진다. 닫기는 버튼 안의 ✕로만 한다
+function setBulk(open) {
+  $('#bulkBox').hidden = !open;
+  document.querySelector('.table-wrap').hidden = open;   // 입력창이 표를 밀어내지 않고, 표가 잠시 숨겨진 그 자리에 입력창이 뜬다
+  $('#bulkApplyBtn').hidden = !open; $('#bulkOpenBtn .tab-x').hidden = !open;
+  document.querySelector('[data-act=clear-students]').hidden = open;
+  document.querySelector('[data-act=add-student]').disabled = open;   // 붙여넣기 중에는 학생 추가 버튼 비활성
+  const b = $('#bulkOpenBtn'); b.classList.toggle('on', open); b.setAttribute('aria-pressed', open ? 'true' : 'false'); b.tabIndex = open ? -1 : 0;
+}
 function genderCount() {
-  const st = state.students;
-  return `${st.length}명 (남 ${st.filter(s => s.gender === 'M').length} · 여 ${st.filter(s => s.gender === 'F').length})`;
+  const st = actives(), gap = state.students.length - st.length;
+  return `${st.length}명 (남 ${st.filter(s => s.gender === 'M').length} · 여 ${st.filter(s => s.gender === 'F').length})${gap ? ` · 결번 ${gap}` : ''}`;
 }
 function renderStudents() {
   const st = state.students;
   $('#studentCount').textContent = genderCount();
   $('#studentTable').innerHTML =
-    '<tr><th>번호</th><th>이름</th><th>성별</th><th></th></tr>' +
-    (st.length ? st.map((s, i) => `<tr>
+    '<tr><th>번호</th><th>이름</th><th>성별</th><th class="vcol">결번</th><th></th></tr>' +
+    (st.length ? st.map((s, i) => `<tr class="${s.vacant ? 'vacant-row' : ''}">
       <td class="no">${s.no}</td>
-      <td><input type="text" data-i="${i}" data-f="name" value="${esc(s.name)}" maxlength="20"></td>
-      <td><select data-i="${i}" data-f="gender">
+      <td><input type="text" data-i="${i}" data-f="name" value="${s.vacant ? '결번' : esc(s.name)}" maxlength="20" ${s.vacant ? 'disabled' : ''}></td>
+      <td><select data-i="${i}" data-f="gender" ${s.vacant ? 'disabled' : ''}>
         <option value="" ${s.gender === '' ? 'selected' : ''}>-</option>
         <option value="M" ${s.gender === 'M' ? 'selected' : ''}>남</option>
         <option value="F" ${s.gender === 'F' ? 'selected' : ''}>여</option></select></td>
+      <td class="vcol"><input type="checkbox" data-i="${i}" data-f="vacant" ${s.vacant ? 'checked' : ''} aria-label="${s.no}번 결번"></td>
       <td><button class="x" data-del-student="${i}" title="삭제">✕</button></td></tr>`).join('')
-      : '<tr><td colspan="4" style="padding:14px;color:var(--muted)">학생이 없습니다. 추가하거나 엑셀로 올려 주세요.</td></tr>');
+      : '<tr><td colspan="5" class="empty-cell"><div>학생이 없습니다. 추가하거나 엑셀로 올려 주세요.</div></td></tr>');
 }
 
 function renderLayout() {
@@ -222,6 +235,11 @@ function refreshSepSelects() {
   B.innerHTML = opts; B.value = clamp(curB);
   if (changed) save();
 }
+// 학급 이름 입력창 ↔ 상태 동기화 (입력 중일 때는 건드리지 않음)
+function syncClassName() {
+  const el = $('#className');
+  if (document.activeElement !== el && el.value !== state.className) el.value = state.className;
+}
 function renderOptions() {
   enforceMix();
   const s = state.settings;
@@ -233,13 +251,13 @@ function renderOptions() {
   // 모둠 배치에서는 붙이기 방식·떼기 반경이 쓰이지 않으므로 숨기고, 추가 버튼을 학생 선택 줄로 올린다
   $$('.pair-grid').forEach(g => g.classList.toggle('gm', s.mode === 'group'));
   $('#modeHint').textContent = s.mode === 'group'
-    ? '모둠 배치: 좌석 배열의 "모둠 편집 모드"로 만든 모둠 단위로 학생을 나눕니다. 붙이기 = 같은 모둠, 떼기 = 다른 모둠, 이전 짝 = 같은 모둠이었던 학생.'
+    ? '모둠 배치 방식에서는 다음과 같이 작동합니다.\n· 붙이기 = 같은 모둠\n· 떼기 = 다른 모둠\n· 이전 짝 = 같은 모둠이었던 학생'
     : '';
 }
 
 const pend = { fixed: null, range: null };
 function studentOptions(sel, exclude) {
-  const list = state.students.filter(s => s.id !== exclude);
+  const list = actives().filter(s => s.id !== exclude);
   if (!list.length) return '<option value="">(학생 없음)</option>';
   return list.map(s => `<option value="${s.id}" ${String(s.id) === String(sel) ? 'selected' : ''}>${esc(fullLabel(s))}</option>`).join('');
 }
@@ -376,7 +394,7 @@ function drawPicker() {
 }
 /* ================= 검증 / 배치 알고리즘 ================= */
 function validate() {
-  const e = [], n = state.students.length, seats = seatCount();
+  const e = [], n = actives().length, seats = seatCount();
   if (n === 0) e.push('학생 명단이 비어 있어요.');
   if (n > seats) e.push(`학생(${n}명)이 좌석(${seats}개)보다 많아요. 좌석 배열을 늘려 주세요.`);
   if (state.settings.mode === 'group' && !Object.keys(state.layout.groups).some(k => { const [r, c] = k.split(',').map(Number); return !isOff(r, c); }))
@@ -401,7 +419,7 @@ function validate() {
 }
 
 function solve() {
-  const S = state.students, n = S.length, gm = state.settings.mode === 'group', D = dims();
+  const S = actives(), n = S.length, gm = state.settings.mode === 'group', D = dims();
   const seats = [], seatIdx = {};
   for (let r = 0; r < state.layout.rows; r++) for (let c = 0; c < state.layout.cols; c++)
     if (!isOff(r, c)) { seatIdx[r + ',' + c] = seats.length; seats.push({ r, c, lr: D.rowNo[r], lc: D.colNo[c] }); }
@@ -585,6 +603,7 @@ function syncViewSeg() { $$('#viewSeg button, #viewSeg2 button').forEach(b => b.
 function renderShuffle() {
   syncViewSeg();
   $('#showAll').checked = state.showAll;
+  $('#optAnim').checked = state.settings.animation;
   $('#slotBar').innerHTML = state.slots.map((s, i) =>
     `<button class="slot ${s ? 'filled' : ''} ${i === state.activeSlot && !state.showAll ? 'active' : ''}" data-slot="${i}" ${state.showAll ? 'disabled' : ''}>슬롯 ${i + 1}${s ? ' ♥' : ''}</button>`).join('');
   const errs = validate(), pb = $('#problems');
@@ -601,7 +620,7 @@ function renderShuffle() {
   const modeTxt = s => (s.mode === 'group' ? ' · 모둠 배치' : '');
   if (state.showAll) {
     area.innerHTML = '<div class="all-grid">' + state.slots.map((s, i) => `
-      <div class="slot-card ${i === state.activeSlot ? 'active' : ''}" id="slotcard-${i}">
+      <div class="slot-card" id="slotcard-${i}">
         <header><b>슬롯 ${i + 1}</b>
           <button class="btn small" data-act="shuffle" data-i="${i}" ${blocked ? 'disabled' : ''}>${s ? '다시 배치' : '배치'}</button>
           <button class="btn small good" data-act="confirm-slot" data-i="${i}" ${s ? '' : 'disabled'}>확정</button>
@@ -626,7 +645,7 @@ function prepareSpin(root) {
 }
 function runSpin(seats, skipP) {
   return new Promise(res => {
-    const total = 2600, t0 = performance.now(), names = state.students.map(label);
+    const total = 2600, t0 = performance.now(), names = actives().map(label);
     seats.forEach(el => (el._lock = 500 + Math.random() * (total - 500)));
     const lock = el => {
       if (el._locked) return; el._locked = true;
@@ -727,6 +746,7 @@ function renderFinal() {
 const TAB_KEY = 'seat-changer-tab';   // 새로고침 후에도 보던 탭을 유지 (저장 파일에는 넣지 않는 화면 설정)
 function showTab(name) {
   try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* ignore */ }
+  syncClassName();   // 상단 학급 이름 입력창은 어느 탭에서든 저장된 값과 같게 맞춘다
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
   if (name === 'setup') renderSetup();
@@ -767,7 +787,7 @@ function buildWorkbook(src) {
   const L = src.layout, D = dimsOf(L);
   add('안내', [
     ['우리반 자리 바꾸기 — 엑셀 작성 안내'], [''],
-    ['[학생명단] 번호(자동 연번) / 이름 / 성별(남·여). 번호 칸은 비워도 되고, 위에서부터 1, 2, 3… 순서로 매겨집니다.'],
+    ['[학생명단] 번호(자동 연번) / 이름 / 성별(남·여). 번호 칸은 비워도 되고, 위에서부터 1, 2, 3… 순서로 매겨집니다. 없는 번호(결번)는 이름 칸에 \"결번\"이라고 적으세요.'],
     ['[좌석배열] 위쪽 행이 교탁에 가까운 앞쪽 행, 왼쪽이 학생이 앉아서 본 왼쪽. 책상 있는 칸 = 1, 빈 칸·통로 = 0'],
     ['[모둠] 좌석배열과 같은 크기의 표에 모둠 번호를 적습니다 (모둠 배치를 쓸 때만, 없는 칸은 0)'],
     ['[붙이기] 붙여 앉힐 두 학생 (번호 또는 이름)과 방식(좌우/주변, 비우면 설정 시트의 붙이기방식). 모둠 배치에서는 같은 모둠'],
@@ -777,7 +797,7 @@ function buildWorkbook(src) {
     ['[이전짝] 예전에 짝(또는 같은 모둠)이었던 두 학생. 앱에서 확정할 때마다 자동으로 쌓입니다.'],
     ['[설정] 배치방식(일반/모둠), 붙이기방식(좌우/주변), 남녀섞기, 이전자리피하기, 이전짝피하기(O/X)'],
   ], [110]);
-  add('학생명단', [['번호', '이름', '성별'], ...src.students.map((s, i) => [i + 1, s.name, s.gender === 'M' ? '남' : s.gender === 'F' ? '여' : ''])], [8, 16, 8]);
+  add('학생명단', [['번호', '이름', '성별'], ...src.students.map((s, i) => [i + 1, s.vacant ? '결번' : s.name, s.vacant ? '' : s.gender === 'M' ? '남' : s.gender === 'F' ? '여' : ''])], [8, 16, 8]);
   const grid = [], gg = [];
   for (let r = 0; r < L.rows; r++) {
     const row = [], grow = [];
@@ -828,7 +848,8 @@ async function importXlsx(file) {
         next.students = []; next.nextId = 1; next.pairHistory = [];
         sr.slice(1).filter(r => String(r[1] ?? '').trim() !== '').forEach((r, i) => {
           const o = parseInt(r[0], 10);
-          next.students.push({ id: next.nextId++, no: i + 1, name: String(r[1]).trim(), gender: parseGender(r[2]), _orig: Number.isFinite(o) ? o : i + 1 });
+          const nm0 = String(r[1]).trim(), vac = nm0 === '결번';   // 이름 칸에 '결번'이라고 적힌 번호는 없는 학생
+          next.students.push({ id: next.nextId++, no: i + 1, name: vac ? '' : nm0, gender: vac ? '' : parseGender(r[2]), vacant: vac, _orig: Number.isFinite(o) ? o : i + 1 });
         });
       } else next.students.forEach(s => (s._orig = s.no));
 
@@ -850,8 +871,8 @@ async function importXlsx(file) {
 
       const find = tok => {
         const t = String(tok ?? '').trim(); if (!t) return null;
-        if (/^\d+$/.test(t)) { const s = next.students.find(x => x._orig === +t); if (s) return s; }
-        return next.students.find(x => x.name === t) || null;
+        if (/^\d+$/.test(t)) { const s = next.students.find(x => x._orig === +t && !x.vacant); if (s) return s; }
+        return next.students.find(x => x.name === t && !x.vacant) || null;
       };
       const dataRows = n => (rowsOf(n) || []).slice(1).filter(r => String(r[0] ?? '').trim() !== '' || String(r[1] ?? '').trim() !== '');
       const settings = next.settings;
@@ -903,8 +924,8 @@ async function importXlsx(file) {
         !await ask('엑셀 내용으로 현재 설정이 바뀌어요.\n(임시 저장·확정된 자리는 초기화돼요)\n계속할까요?', { ok: '올리기', title: '엑셀 올리기' })) return;
       next.slots = Array(SLOT_N).fill(null); next.final = null; next.activeSlot = 0;
       state = next; save(); pend.fixed = pend.range = null; renderAllCurrent();
-      if (warn.length) await notify(`엑셀을 불러왔어요. (학생 ${state.students.length}명, 좌석 ${seatCount()}개)\n\n확인이 필요한 항목:\n` + warn.slice(0, 8).join('\n') + (warn.length > 8 ? `\n…외 ${warn.length - 8}건` : ''), '불러왔어요');
-      else toast(`엑셀을 불러왔어요. (학생 ${state.students.length}명, 좌석 ${seatCount()}개)`);
+      if (warn.length) await notify(`엑셀을 불러왔어요. (학생 ${actives().length}명, 좌석 ${seatCount()}개)\n\n확인이 필요한 항목:\n` + warn.slice(0, 8).join('\n') + (warn.length > 8 ? `\n…외 ${warn.length - 8}건` : ''), '불러왔어요');
+      else toast(`엑셀을 불러왔어요. (학생 ${actives().length}명, 좌석 ${seatCount()}개)`);
     } catch (e) { await notify('엑셀을 읽지 못했어요.\n' + (e.message || e), '불러오지 못했어요'); }
   };
   fr.readAsArrayBuffer(file);
@@ -958,7 +979,7 @@ function openHelp(title, html) {
 
 /* ================= 이벤트 ================= */
 document.addEventListener('click', async e => {
-  const t = e.target.closest('button, [data-goto]'); if (!t) return;
+  const t = e.target.closest('button, [data-goto], .tab-x'); if (!t) return;
 
   if (t.dataset.tab) { if (!busy) showTab(t.dataset.tab); return; }
   if (t.dataset.goto) { showTab(t.dataset.goto); return; }
@@ -1042,19 +1063,34 @@ document.addEventListener('click', async e => {
       const inputs = $$('#studentTable input[data-f=name]'); inputs[inputs.length - 1]?.focus();
       $('.table-wrap').scrollTop = 1e6; break;
     }
-    case 'bulk-open': $('#bulkBox').hidden = false; $('#bulkText').focus(); break;
-    case 'bulk-close': $('#bulkBox').hidden = true; break;
+    case 'bulk-open': setBulk(true); $('#bulkText').focus(); break;
+    case 'bulk-close': setBulk(false); break;
     case 'bulk-apply': {
       const lines = $('#bulkText').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       if (!lines.length) break;
-      if (!await guard()) break;
-      lines.forEach(l => {
+      const entries = lines.map(l => {
         let p = l.split(/[\t,]+|\s+/).filter(Boolean);
         if (p.length >= 2 && /^\d+$/.test(p[0])) p = p.slice(1);   // 앞의 번호는 무시(자동 연번)
-        addStudent(p[0], parseGender(p[1]));
+        return p[0] === '결번' ? { name: '', gender: '', vacant: true }   // "결번"이라고 적은 줄은 없는 번호
+          : { name: p[0], gender: parseGender(p[1]), vacant: false };
       });
-      $('#bulkText').value = ''; $('#bulkBox').hidden = true;
-      save(); renderStudents(); renderConstraints(); toast(`${lines.length}명을 추가했어요.`);
+      const vacantAdded = entries.filter(x => x.vacant).length, realAdded = entries.length - vacantAdded;
+      // 이미 명단이 있으면 새 명단을 맨 앞/맨 뒤 중 어디에 넣을지 묻는다 (맨 앞이면 기존 번호가 뒤로 밀림)
+      let where = 'back';
+      if (state.students.length) {
+        const hasVacant = state.students.some(x => x.vacant);
+        where = await modal('이미 명단이 있어요',
+          `명단에 이미 ${hasVacant ? `학생 ${actives().length}명과 결번 ${state.students.length - actives().length}개가` : `학생 ${state.students.length}명이`} 있어요.\n붙여넣은 ${vacantAdded ? `학생 ${realAdded}명과 결번 ${vacantAdded}개를` : `${realAdded}명을`} 어디에 넣을까요?\n(맨 앞에 넣으면 기존 명단의 번호가 뒤로 밀려요.)`,
+          [{ t: '취소', v: 'cancel', esc: true, cls: 'small' }, { t: '맨 앞에 넣기', v: 'front', cls: 'small' }, { t: '맨 뒤에 넣기', v: 'back', cls: 'small primary' }]);
+        if (where === 'cancel' || !where) break;   // 취소하면 입력한 내용을 그대로 두고 입력창도 열어 둔다
+      }
+      if (!await guard()) break;
+      const created = entries.map(x => ({ id: state.nextId++, no: 0, name: x.name, gender: x.gender, ...(x.vacant ? { vacant: true } : {}) }));
+      if (where === 'front') state.students.unshift(...created); else state.students.push(...created);
+      renumber(state);
+      $('#bulkText').value = ''; setBulk(false);
+      save(); renderStudents(); renderConstraints();
+      toast(`${realAdded}명을 ${state.students.length > created.length ? (where === 'front' ? '맨 앞에 ' : '맨 뒤에 ') : ''}추가했어요.` + (vacantAdded ? ` (결번 ${vacantAdded}개)` : ''));
       if (enforceMix()) { renderOptions(); toast('성별이 지정되지 않은 학생이 있어 "남녀 섞어 앉히기"를 해제했어요.', 3600); } break;
     }
     case 'clear-students':
@@ -1138,11 +1174,29 @@ document.addEventListener('click', async e => {
   }
 });
 
+// ✕(탭 닫기 표시)는 키보드로도 누를 수 있게
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('tab-x')) { e.preventDefault(); e.target.click(); }
+});
+
 // 입력 변경
 document.addEventListener('change', async e => {
   const t = e.target;
   if (t.matches('#studentTable [data-f]')) {
     const s = state.students[+t.dataset.i], f = t.dataset.f; if (!s) return;
+    if (f === 'vacant') {
+      const on = t.checked;
+      const has = state.pairs.some(p => p.a === s.id || p.b === s.id) + state.seps.some(p => p.a === s.id || p.b === s.id) + state.fixed.some(p => p.s === s.id) + state.ranges.some(p => p.s === s.id);
+      if (on && has && !await ask(`${s.no}번을 결번으로 하면 이 번호에 지정된 붙이기·떼기·고정석·범위 설정이 삭제돼요.\n계속할까요?`, { title: '설정이 삭제돼요', ok: '결번으로 체크', danger: true })) { t.checked = false; return; }
+      if (!await guard()) { t.checked = !on; return; }
+      s.vacant = on;
+      if (on) {
+        state.pairs = state.pairs.filter(p => p.a !== s.id && p.b !== s.id); state.seps = state.seps.filter(p => p.a !== s.id && p.b !== s.id);
+        state.fixed = state.fixed.filter(p => p.s !== s.id); state.ranges = state.ranges.filter(p => p.s !== s.id);
+      }
+      save(); renderStudents(); renderConstraints(); renderOptions();
+      return;
+    }
     s[f] = f === 'name' ? t.value.trim() : t.value;
     save(); renderConstraints();
     if (f === 'gender') {
@@ -1187,7 +1241,7 @@ document.addEventListener('change', async e => {
   else if (t.id === 'fileJson') { if (t.files[0]) loadJson(t.files[0]); t.value = ''; }
   else if (t.id === 'fileXlsx') { if (t.files[0]) importXlsx(t.files[0]); t.value = ''; }
 });
-$('#className').addEventListener('input', e => { state.className = e.target.value; save(); });
+$('#className').addEventListener('input', e => { state.className = e.target.value; save(); if (currentTab() === 'final') renderFinal(); });   // 확정된 자리 화면의 제목도 바로 따라가게
 
 // 좌석이 바뀌었을 때 범위 밖·책상 없는 곳이 된 고정석·범위·모둠 정리
 function pruneConstraints() {
