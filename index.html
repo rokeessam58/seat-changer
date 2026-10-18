@@ -48,7 +48,7 @@
       <details class="guide">
         <summary>엑셀 작성 방법 보기</summary>
         <ul>
-          <li><b>학생명단</b> : 이름 / 성별(남·여). 번호는 위에서부터 1, 2, 3… 자동으로 매겨지며, 다른 시트에서 학생을 적을 때는 이 번호나 이름 중 편한 쪽을 쓰세요. 없는 번호(결번)는 이름 칸에 '결번'이라고 적습니다.</li>
+          <li><b>학생명단</b> : 이름 / 성별(남·여) / 성적(선택, 모둠 성적 고르게 편성용). 번호는 위에서부터 1, 2, 3… 자동으로 매겨지며, 다른 시트에서 학생을 적을 때는 이 번호나 이름 중 편한 쪽을 쓰세요. 없는 번호(결번)는 이름 칸에 '결번'이라고 적습니다.</li>
           <li><b>좌석배열</b> : 위쪽 행이 <u>교탁에 가까운 앞쪽 행</u>, 왼쪽이 <u>학생이 앉아서 본 왼쪽</u>. 책상이 있는 칸은 1, 빈 칸·통로는 0</li>
           <li><b>모둠</b> : 좌석배열과 같은 크기의 표에 모둠 번호를 적습니다 (모둠 배치를 쓸 때만, 없는 칸은 0)</li>
           <li><b>붙이기 / 떼기</b> : 두 학생 (붙이기는 방식 좌우/주변, 떼기는 최소 반경 칸 수 — 비우면 2칸). 모둠 배치에서는 붙이기 = 같은 모둠, 떼기 = 다른 모둠</li>
@@ -110,16 +110,31 @@
     <div class="card">
       <h2>배치 옵션</h2>
       <div class="opts">
-        <label>배치 방식
+        <label class="mode-lbl opt-full"><span class="mode-mark" aria-hidden="true">★★</span> 배치 모드 :
           <select id="optMode">
-            <option value="seat">일반 자리</option>
-            <option value="group">모둠 배치</option>
+            <option value="seat">일반 자리 모드</option>
+            <option value="group">모둠 모드</option>
           </select>
         </label>
-        <label class="chk"><input id="optMix" type="checkbox"> 남녀 섞어 앉히기</label>
-        <label class="chk"><input id="optAvoid" type="checkbox"> 직전 자리 피하기</label>
-        <label class="chk"><input id="optPast" type="checkbox"> 이전 짝 피하기</label>
-        <span class="count"><span id="pastCount"></span> <button class="btn small" data-act="past-reset">짝 기록 초기화</button></span>
+        <div class="opt-line">
+          <label class="chk"><input id="optMix" type="checkbox"> 남녀 섞어 앉히기</label>
+          <label class="chk"><input id="optAvoid" type="checkbox"> 직전 자리 피하기</label>
+          <div class="past-wrap">
+            <label class="chk"><input id="optPast" type="checkbox"> 이전 짝 피하기</label>
+            <span class="past-line"><span id="pastCount"></span> <button type="button" class="link-danger" data-act="past-reset">기록 초기화</button></span>
+          </div>
+        </div>
+        <div id="balBox" class="bal-box opt-full" hidden>
+          <div class="bal-head">
+            <label class="chk"><input id="optBal" type="checkbox"> 성적 고르게 편성</label>
+            <button type="button" class="help-btn" data-act="bal-help" aria-label="성적 고르게 편성 설명"></button>
+          </div>
+          <div id="balTools" class="bal-tools" hidden>
+            <div class="bal-row"><span id="balStatus"></span><button type="button" class="link-danger" data-act="score-clear">성적 지우기</button></div>
+            <div class="bal-row"><button type="button" class="btn small" data-act="score-template">양식 받기</button><button type="button" class="btn small primary" data-act="score-upload">성적 올리기</button></div>
+          </div>
+          <input id="scoreFile" type="file" accept=".xlsx,.xls,.csv" hidden>
+        </div>
       </div>
       <p id="modeHint" class="hint small-hint"></p>
     </div>
@@ -149,7 +164,7 @@
         <ul id="sepList" class="chips"></ul>
       </div>
       <div class="card">
-        <h2>고정석 학생</h2>
+        <h2>고정석 학생 <label class="chk h2-chk"><input id="optFixed" type="checkbox"> 고정 여부 표시하기</label></h2>
         <div class="row wrap">
           <select id="fixS"></select>
           <button class="btn small" data-act="pick-fixed">자리 선택</button>
@@ -182,6 +197,12 @@
       <div id="slotBar" class="slotbar"></div>
       <label class="chk"><input id="showAll" type="checkbox"> 한 번에 보기</label>
       <label class="chk"><input id="optAnim" type="checkbox"> 배치 애니메이션</label>
+      <label class="mode-lbl"><span class="mode-mark" aria-hidden="true">★★</span> 배치 모드 :
+        <select id="optMode2">
+          <option value="seat">일반 자리 모드</option>
+          <option value="group">모둠 모드</option>
+        </select>
+      </label>
       <div class="seg" id="viewSeg">
         <button data-view="student">학생용 보기</button>
         <button data-view="teacher">교사용 보기</button>

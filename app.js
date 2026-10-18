@@ -27,7 +27,7 @@ const defaultState = () => ({
   ranges: [],              // {s,r1,r2,c1,c2}
   pairHistory: [],         // ["작은id-큰id"] 이전에 짝(또는 같은 모둠)이었던 쌍
   history: [],             // 확정 이력(최신이 앞): {hid, at, seats, mode, warnings, snap:{students,layout,fixed}, note}
-  settings: { mode: 'seat', pairMode: 'side', mix: false, avoidPrev: true, avoidPast: true, animation: true, keepHistory: false, historyMax: 10 },
+  settings: { mode: 'seat', pairMode: 'side', mix: false, avoidPrev: true, avoidPast: true, showFixed: true, balance: false, animation: true, keepHistory: false, historyMax: 10 },
   slots: Array(SLOT_N).fill(null),   // {seats:{id:[r,c]}, warnings:[], at, mode}
   final: null,
   activeSlot: 0,
@@ -189,7 +189,7 @@ function renderStudents() {
   $('#studentCount').textContent = genderCount();
   updateGroupSizeUI();
   $('#studentTable').innerHTML =
-    '<tr><th>번호</th><th>이름</th><th>성별</th><th class="vcol">결번</th><th></th></tr>' +
+    '<tr><th>번호</th><th>이름</th><th>성별<button type="button" class="th-x" data-act="clear-genders" title="모든 학생의 성별 지우기" aria-label="모든 학생의 성별 지우기"></button></th><th class="vcol">결번</th><th></th></tr>' +
     (st.length ? st.map((s, i) => `<tr class="${s.vacant ? 'vacant-row' : ''}">
       <td class="no">${s.no}</td>
       <td><input type="text" data-i="${i}" data-f="name" value="${s.vacant ? '결번' : esc(s.name)}" maxlength="20" ${s.vacant ? 'disabled' : ''}></td>
@@ -254,8 +254,9 @@ function renderOptions() {
   enforceMix();
   const s = state.settings;
   refreshSepSelects();
-  $('#optMode').value = s.mode; $('#optPairMode').value = s.pairMode;
-  $('#optMix').checked = s.mix; $('#optAvoid').checked = s.avoidPrev; $('#optPast').checked = s.avoidPast; $('#optAnim').checked = s.animation;
+  $('#optMode').value = $('#optMode2').value = s.mode;   // 기초 설정과 자리 배치 두 곳의 배치 모드는 항상 같은 값
+  $('#optPairMode').value = s.pairMode;
+  $('#optBal').checked = !!s.balance; $('#balBox').hidden = s.mode !== 'group'; $('#balTools').hidden = !s.balance; scoreStatus(); $('#optMix').checked = s.mix; $('#optAvoid').checked = s.avoidPrev; $('#optPast').checked = s.avoidPast; $('#optFixed').checked = s.showFixed !== false; $('#optAnim').checked = s.animation;
   $('#className').value = state.className;
   $('#pastCount').textContent = `기록된 짝 ${state.pairHistory.length}쌍`;
   // 모둠 배치에서는 붙이기 방식·떼기 반경이 쓰이지 않으므로 숨기고, 추가 버튼을 학생 선택 줄로 올린다
@@ -409,6 +410,10 @@ function validate() {
   if (n > seats) e.push(`학생(${n}명)이 좌석(${seats}개)보다 많아요. 좌석 배열을 늘려 주세요.`);
   if (state.settings.mode === 'group' && !Object.keys(state.layout.groups).some(k => { const [r, c] = k.split(',').map(Number); return !isOff(r, c); }))
     e.push('모둠 배치인데 만들어진 모둠이 없어요. 좌석 배열의 "모둠 편집 모드"에서 모둠을 만들어 주세요.');
+  if (state.settings.mode === 'group' && state.settings.balance) {
+    const miss = actives().filter(s => !Number.isFinite(s.score));
+    if (miss.length) e.push(`성적 고르게 편성을 쓰려면 모든 학생의 성적이 필요해요. 성적이 없는 학생: ${miss.slice(0, 5).map(label).join(', ')}${miss.length > 5 ? ` 외 ${miss.length - 5}명` : ''}`);
+  }
   const taken = {};
   for (const f of state.fixed) {
     const s = byId(f.s); if (!s) continue;
@@ -468,6 +473,17 @@ function solve() {
     return out;
   });
   const isFixed = S.map(s => state.fixed.some(f => f.s === s.id));
+  const dom = domain.map(d => new Set(d));
+  // 성적 고르게 편성(모둠): 상위 k명·하위 k명(k = 모둠 수)은 서로 다른 모둠에, 나머지는 모둠 평균이 비슷하도록
+  const bal = gm && state.settings.balance && S.every(s => Number.isFinite(s.score));
+  const gIds = new Set(gOf), tbOf = S.map(() => []);
+  let TB = null;
+  if (bal) {
+    const order = S.map((s, i) => ({ i, v: s.score, r: Math.random() })).sort((a, b) => b.v - a.v || a.r - b.r).map(x => x.i);   // 동점은 무작위
+    const k = Math.min(gIds.size, n);
+    TB = { top: order.slice(0, k), bottom: order.slice(n - k) };
+    [TB.top, TB.bottom].forEach(l => l.forEach(i => tbOf[i].push(l)));
+  }
   const prev = S.map(s => { const p = state.final && state.final.seats[s.id]; return p ? seatIdx[p[0] + ',' + p[1]] : -1; });
   const avoidPrev = state.settings.avoidPrev, mix = state.settings.mix && mixAvailable();
 
@@ -480,6 +496,7 @@ function solve() {
       if (useC) {
         for (const [j, pm] of pairN[i]) if (assign[j] >= 0 && !pairOK(s, assign[j], pm)) { ok = false; break; }
         if (ok) for (const [j, d] of sepN[i]) if (assign[j] >= 0 && !sepOK(s, assign[j], d)) { ok = false; break; }
+        if (ok && TB) outer: for (const l of tbOf[i]) for (const j of l) if (j !== i && assign[j] >= 0 && gOf[assign[j]] === gOf[s]) { ok = false; break outer; }
         if (ok && strict) for (const nb of nbrs[s]) { const j = occ[nb]; if (j >= 0 && hist[i].has(j)) { ok = false; break; } }
       }
       if (ok) out.push(s);
@@ -529,16 +546,22 @@ function solve() {
   }
   strict = false;
 
+  // 조건 위반 수: 붙이기·떼기 + (성적 편성이면) 상위/하위 학생이 같은 모둠인 쌍
+  const tbViol = () => {
+    let v = 0;
+    if (TB) for (const l of [TB.top, TB.bottom]) { const seen = new Set(); for (const i of l) { const g = gOf[assign[i]]; if (seen.has(g)) v++; else seen.add(g); } }
+    return v;
+  };
+  const violations = () => {
+    let v = tbViol();
+    for (const [a, b, pm] of pairs) if (!pairOK(assign[a], assign[b], pm)) v++;
+    for (const [a, b, d] of seps) if (!sepOK(assign[a], assign[b], d)) v++;
+    return v;
+  };
+
   const warnings = [];
   if (!ok) {
     if (!attempt(false, 200000)) throw new Error('고정석·범위 조건끼리 충돌해서 배치할 수 없어요.\n조건을 확인해 주세요.');
-    const dom = domain.map(d => new Set(d));
-    const violations = () => {
-      let v = 0;
-      for (const [a, b, pm] of pairs) if (!pairOK(assign[a], assign[b], pm)) v++;
-      for (const [a, b, d] of seps) if (!sepOK(assign[a], assign[b], d)) v++;
-      return v;
-    };
     let cur = violations();
     const movable = S.map((_, i) => i).filter(i => !isFixed[i] && domain[i].length > 1);
     for (let it = 0; it < 40000 && cur > 0 && movable.length; it++) {
@@ -553,16 +576,61 @@ function solve() {
       if (nv <= cur) cur = nv;
       else { assign[i] = old; occ[old] = i; occ[s] = -1; if (j >= 0) { assign[j] = s; occ[s] = j; } }
     }
-    warnings.push('모든 조건을 동시에 만족하는 배치를 찾지 못해 최대한 가깝게 배치했어요.');
-    for (const [a, b, pm] of pairs) if (!pairOK(assign[a], assign[b], pm)) warnings.push(`붙이기 미충족: ${label(S[a])} · ${label(S[b])}`);
-    for (const [a, b, d] of seps) if (!sepOK(assign[a], assign[b], d)) warnings.push(`떼기 미충족: ${label(S[a])} · ${label(S[b])}`);
+    warnings.push('모든 조건을 동시에 만족하는 배치를 찾지 못해 최대한 가깝게 배치했어요. 지키지 못한 조건은 아래와 같아요.');
+    for (const [a, b, pm] of pairs) if (!pairOK(assign[a], assign[b], pm))
+      warnings.push(`[붙여 앉힐 학생] ${josa(label(S[a]), '과/와')} ${josa(label(S[b]), '이/가')} ${gm ? '같은 모둠이 되지 못했어요.' : `붙어 앉지 못했어요. (조건: ${PAIR_LABEL[pm]})`}`);
+    for (const [a, b, d] of seps) if (!sepOK(assign[a], assign[b], d))
+      warnings.push(`[떼어 앉힐 학생] ${josa(label(S[a]), '과/와')} ${josa(label(S[b]), '이/가')} ${gm ? '다른 모둠이 되지 못했어요.' : `${d}칸 이상 떨어지지 못했어요. (현재 ${dist(seats[assign[a]], seats[assign[b]])}칸)`}`);
   }
   if (hasHist) for (let i = 0; i < n; i++) for (const j of hist[i]) if (j > i && nbrs[assign[i]].includes(assign[j]))
-    warnings.push(`이전에 짝이었던 ${label(S[i])} · ${josa(label(S[j]), '이/가')} 다시 ${gm ? '같은 모둠' : '짝'}이 되었어요.`);
+    warnings.push(`[이전 짝 피하기] 이전에 짝이었던 ${josa(label(S[i]), '과/와')} ${josa(label(S[j]), '이/가')} 다시 ${gm ? '같은 모둠' : '짝'}이 되었어요.`);
+  if (avoidPrev) for (let i = 0; i < n; i++) if (!isFixed[i] && prev[i] >= 0 && assign[i] === prev[i])
+    warnings.push(`[직전 자리 피하기] ${josa(label(S[i]), '이/가')} 직전과 같은 자리에 앉았어요.`);
+
+  let balance = null;
+  if (bal) {
+    const mean = S.reduce((t, x) => t + x.score, 0) / n, varr = S.reduce((t, x) => t + (x.score - mean) ** 2, 0) / n;
+    const means = () => {
+      const sum = new Map(), cnt = new Map();
+      for (let i = 0; i < n; i++) { const g = gOf[assign[i]]; sum.set(g, (sum.get(g) || 0) + S[i].score); cnt.set(g, (cnt.get(g) || 0) + 1); }
+      return [...sum].map(([g, sm]) => [g, sm / cnt.get(g)]);
+    };
+    if (varr > 0) {
+      // 서로 다른 모둠의 두 학생 자리를 맞바꿔 가며(조건을 어기지 않는 범위에서) 모둠 평균의 편차를 줄인다
+      const cost = () => {
+        let c = 0; for (const [, m] of means()) c += (m - mean) ** 2;
+        c = c / varr + 1000 * violations();
+        for (let i = 0; i < n; i++) for (const j of hist[i]) if (j > i && gOf[assign[i]] === gOf[assign[j]]) c += 3;
+        if (avoidPrev) for (let i = 0; i < n; i++) if (!isFixed[i] && prev[i] === assign[i]) c += 0.05;
+        if (mix) { const mf = new Map(); for (let i = 0; i < n; i++) { const g = gOf[assign[i]], d = S[i].gender === 'M' ? 1 : S[i].gender === 'F' ? -1 : 0; mf.set(g, (mf.get(g) || 0) + d); } for (const [, d] of mf) c += 0.02 * Math.abs(d); }
+        return c;
+      };
+      const movable = S.map((_, i) => i).filter(i => !isFixed[i] && domain[i].length > 1);
+      let cur = cost(), best = cur, bestAssign = assign.slice();
+      const t1 = performance.now(), MAXIT = 60000;
+      for (let it = 0; it < MAXIT && movable.length > 1 && performance.now() - t1 < 600; it++) {
+        const i = movable[(Math.random() * movable.length) | 0], j = movable[(Math.random() * movable.length) | 0];
+        if (i === j) continue;
+        const si = assign[i], sj = assign[j];
+        if (gOf[si] === gOf[sj] || !dom[i].has(sj) || !dom[j].has(si)) continue;
+        assign[i] = sj; assign[j] = si; occ[sj] = i; occ[si] = j;
+        const nc = cost(), temp = 0.08 * (1 - it / MAXIT);
+        if (nc <= cur || (temp > 0 && Math.random() < Math.exp(-(nc - cur) / temp))) { cur = nc; if (cur < best) { best = cur; bestAssign = assign.slice(); } }
+        else { assign[i] = si; assign[j] = sj; occ[si] = i; occ[sj] = j; }
+      }
+      assign = bestAssign;
+    }
+    const ms = means().map(x => x[1]);
+    balance = { min: Math.round(Math.min(...ms) * 10) / 10, max: Math.round(Math.max(...ms) * 10) / 10 };
+    for (const [l, name] of [[TB.top, '상위'], [TB.bottom, '하위']]) {
+      const byG = new Map(); l.forEach(i => { const g = gOf[assign[i]]; (byG.get(g) || byG.set(g, []).get(g)).push(i); });
+      for (const [, mem] of byG) if (mem.length > 1) warnings.push(`[성적 고르게 편성] 성적 ${name} ${l.length}명인 ${mem.map(i => label(S[i])).join(', ')}이(가) 같은 모둠이 되었어요.`);
+    }
+  }
 
   const out = {};
   S.forEach((s, i) => { const st = seats[assign[i]]; out[s.id] = [st.r, st.c]; });
-  return { seats: out, warnings, at: Date.now(), mode: gm ? 'group' : 'seat' };
+  return { seats: out, warnings, at: Date.now(), mode: gm ? 'group' : 'seat', balance };
 }
 
 // 확정된 자리에서 "짝"이었던 쌍을 뽑는다 (좌우로 바로 붙은 자리만 인정 → 통로가 끼면 제외 / 모둠은 같은 모둠 전원)
@@ -597,17 +665,19 @@ function boardHTML(rec, { mini = false, edit = null } = {}) {
     const sw = edit ? `data-swap="${s.id}" role="button" tabindex="0"` : '', pre = edit && edit.pending === s.id ? 'swap-pre' : '';
     const dot = g && (s.gender === 'M' || s.gender === 'F') ? `<i class="gdot ${s.gender}"></i>` : '';
     cells += `<div class="seat ${g ? 'gcolor' : s.gender} ${s.gender} ${gcls} ${pre}" ${gs} ${sw} data-sid="${s.id}" data-name="${esc(label(s))}" data-no="${esc(s.no)}">
-      <span class="no">${esc(s.no)}</span><span class="nm">${esc(label(s))}</span>${dot}${fixedIds.has(s.id) ? '<i class="pin">고정</i>' : ''}${gb}</div>`;
+      <span class="no">${esc(s.no)}</span><span class="nm">${esc(label(s))}</span>${dot}${state.settings.showFixed !== false && fixedIds.has(s.id) ? '<i class="pin">고정</i>' : ''}${gb}</div>`;
   }
   const D = dims();
   const units = Math.max(1, cs.reduce((u, c) => u + (D.aisleCols[c] ? 0.5 : 1), 0));
   const tcols = cs.map(c => (D.aisleCols[c] ? 'minmax(0,.5fr)' : 'minmax(0,1fr)')).join(' ');
   const trows = rs.map(r => (D.aisleRows[r] ? 'calc(var(--u) / 3)' : 'calc(var(--u) / 1.5)')).join(' ');   // 통로 = 책상의 절반
-  const podium = '<div class="podium">교탁</div>';
+  // 배치 옵션을 다 지키지 못한 경우: 교탁 줄 오른쪽 위에 느낌표 아이콘을 두고, 누르면 모달로 안내
+  const warns = rec && !edit && rec.warnings && rec.warnings.length ? rec.warnings : null;
+  const warnBtn = warns ? `<button class="warn-btn no-print" data-act="show-warn" data-warn="${esc(JSON.stringify(warns))}" aria-label="배치 안내 보기" title="배치 안내 보기">!</button>` : '';
+  const podium = `<div class="podium-row"><div class="podium">교탁</div>${warnBtn}</div>`;
   return `<div class="board ${mini ? 'mini' : ''}">${view === 'student' ? podium : ''}<div class="seats-wrap" style="--units:${units}"><div class="seats" style="--cols:${cols};--units:${units};--tcols:${tcols};--trows:${trows}">${cells}</div></div>${view === 'teacher' ? podium : ''}</div>`;
 }
 const fmtTime = t => new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const warnHTML = w => w && w.length ? `<div class="problems" style="margin-top:8px"><ul>${w.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
 
 /* ================= ② 자리 배치 탭 ================= */
 function syncViewSeg() { $$('#viewSeg button, #viewSeg2 button').forEach(b => b.classList.toggle('on', b.dataset.view === state.view)); }
@@ -616,6 +686,7 @@ function renderShuffle() {
   syncViewSeg();
   $('#showAll').checked = state.showAll;
   $('#optAnim').checked = state.settings.animation;
+  $('#optMode2').value = state.settings.mode;
   $('#slotBar').innerHTML = state.slots.map((s, i) =>
     `<button class="slot ${s ? 'filled' : ''} ${i === state.activeSlot && !state.showAll ? 'active' : ''}" data-slot="${i}" ${state.showAll || editing ? 'disabled' : ''}>슬롯 ${i + 1}${s ? ' ♥' : ''}</button>`).join('');
   const errs = validate(), pb = $('#problems');
@@ -636,7 +707,7 @@ function renderShuffle() {
   eb.title = eb.disabled ? (state.showAll ? '"한 번에 보기"에서는 사용할 수 없어요' : '편집할 자리가 없어요') : '';
   pb.innerHTML = errs.length ? `<b>배치 전에 확인해 주세요</b><ul>${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
   const area = $('#shuffleArea');
-  const modeTxt = s => (s.mode === 'group' ? ' · 모둠 배치' : '');
+  const modeTxt = s => (s.mode === 'group' ? ' · 모둠 배치' : '') + (s.balance ? ` · 모둠 평균 ${s.balance.min}~${s.balance.max}점` : '');
   if (state.showAll) {
     area.innerHTML = '<div class="all-grid">' + state.slots.map((s, i) => `
       <div class="slot-card" id="slotcard-${i}">
@@ -644,13 +715,13 @@ function renderShuffle() {
           <button class="btn small" data-act="shuffle" data-i="${i}" ${blocked ? 'disabled' : ''}>${s ? '다시 배치' : '배치'}</button>
           <button class="btn small good" data-act="confirm-slot" data-i="${i}" ${s ? '' : 'disabled'}>확정</button>
           <button class="btn small" data-act="clear-slot" data-i="${i}" ${s ? '' : 'disabled'}>비우기</button></header>
-        ${s ? boardHTML(s, { mini: true }) + warnHTML(s.warnings) : '<div class="empty-board">비어 있음</div>'}
+        ${s ? boardHTML(s, { mini: true }) : '<div class="empty-board">비어 있음</div>'}
       </div>`).join('') + '</div>';
   } else {
     const s = state.slots[state.activeSlot];
     const ed = editing && editing.slot === state.activeSlot ? editing : null;
     area.innerHTML = s
-      ? `<div id="slotcard-${state.activeSlot}">${ed ? '<p class="edit-hint">자리를 바꿀 학생을 차례로 눌러 주세요. 두 학생의 자리가 서로 바뀌어요.</p>' : ''}${ed ? boardHTML({ ...s, seats: ed.draft }, { edit: { pending: ed.pending } }) : boardHTML(s)}<p class="meta">슬롯 ${state.activeSlot + 1} · ${fmtTime(s.at)} 배치${modeTxt(s)}${s.edited ? ' · 편집됨' : ''}</p>${ed ? '' : warnHTML(s.warnings)}</div>`
+      ? `<div id="slotcard-${state.activeSlot}">${ed ? '<p class="edit-hint">자리를 바꿀 학생을 차례로 눌러 주세요. 두 학생의 자리가 서로 바뀌어요.</p>' : ''}${ed ? boardHTML({ ...s, seats: ed.draft }, { edit: { pending: ed.pending } }) : boardHTML(s)}<p class="meta">슬롯 ${state.activeSlot + 1} · ${fmtTime(s.at)} 배치${modeTxt(s)}${s.edited ? ' · 편집됨' : ''}</p></div>`
       : `<div class="empty-board">${josa('슬롯 ' + (state.activeSlot + 1), '은/는')} 비어 있어요.<br>위의 <b>자리 배치!</b> 버튼을 눌러 보세요.</div>`;
   }
 }
@@ -749,7 +820,7 @@ async function actConfirm(i) {
   const add = pairsOfRecord(s);
   state.pairHistory = [...new Set([...state.pairHistory, ...add])];
   if (state.settings.keepHistory && state.final) pushHistory(state.final);   // 이전 확정 자리를 이력으로 보관
-  state.final = { seats: s.seats, warnings: s.warnings, at: Date.now(), mode: s.mode, snap: snapshotNow() };
+  state.final = { seats: s.seats, warnings: s.warnings, balance: s.balance || null, at: Date.now(), mode: s.mode, snap: snapshotNow() };
   state.slots = Array(SLOT_N).fill(null); state.activeSlot = 0;
   save(); showTab('final'); toast(`최종 자리가 저장되었어요. (짝 기록 +${add.length}쌍)`);
 }
@@ -760,7 +831,7 @@ function renderFinal() {
   const f = state.final, area = $('#finalArea');
   if (!f) { area.innerHTML = '<div class="empty-board">아직 확정된 자리가 없어요.<br>② 자리 배치에서 마음에 드는 슬롯을 확정해 주세요.</div>'; renderHistory(); return; }
   area.innerHTML = `<div class="print-title">${esc(state.className || '우리반')} 자리 배치표</div>${boardHTML(f)}
-    <p class="meta">${esc(state.className || '')} · ${fmtTime(f.at)} 확정${f.mode === 'group' ? ' · 모둠 배치' : ''} · ${state.view === 'teacher' ? '교사용(교탁에서 본 시점)' : '학생용(교탁을 바라보는 시점)'}</p>${warnHTML(f.warnings)}`;
+    <p class="meta">${esc(state.className || '')} · ${fmtTime(f.at)} 확정${f.mode === 'group' ? ' · 모둠 배치' : ''}${f.balance ? ` · 모둠 평균 ${f.balance.min}~${f.balance.max}점` : ''} · ${state.view === 'teacher' ? '교사용(교탁에서 본 시점)' : '학생용(교탁을 바라보는 시점)'}</p>`;
   renderHistory();
 }
 
@@ -862,9 +933,9 @@ function buildWorkbook(src) {
     ['[고정석] 학생 / 행 / 열 — 통로(책상이 하나도 없는 행·열)를 뺀 번호. 행 1 = 맨 앞 행, 열 1 = 맨 왼쪽'],
     ['[범위] 학생 / 시작행 / 끝행 / 시작열 / 끝열 (같은 학생을 여러 줄 적으면 합쳐서 적용)'],
     ['[이전짝] 예전에 짝(또는 같은 모둠)이었던 두 학생. 앱에서 확정할 때마다 자동으로 쌓입니다.'],
-    ['[설정] 배치방식(일반/모둠), 붙이기방식(좌우/주변), 남녀섞기, 이전자리피하기, 이전짝피하기(O/X)'],
+    ['[설정] 배치방식(일반/모둠), 붙이기방식(좌우/주변), 남녀섞기, 이전자리피하기, 이전짝피하기, 성적고르게편성(O/X)'],
   ], [110]);
-  add('학생명단', [['번호', '이름', '성별'], ...src.students.map((s, i) => [i + 1, s.vacant ? '결번' : s.name, s.vacant ? '' : s.gender === 'M' ? '남' : s.gender === 'F' ? '여' : ''])], [8, 16, 8]);
+  add('학생명단', [['번호', '이름', '성별', '성적'], ...src.students.map((s, i) => [i + 1, s.vacant ? '결번' : s.name, s.vacant ? '' : s.gender === 'M' ? '남' : s.gender === 'F' ? '여' : '', s.vacant || !Number.isFinite(s.score) ? '' : s.score])], [8, 16, 8, 8]);
   const grid = [], gg = [];
   for (let r = 0; r < L.rows; r++) {
     const row = [], grow = [];
@@ -892,8 +963,54 @@ function buildWorkbook(src) {
   add('범위', [['학생', '시작행', '끝행', '시작열', '끝열'], ...rangeRows], [14, 8, 8, 8, 8]);
   add('이전짝', [['학생1', '학생2'], ...src.pairHistory.map(k => k.split('-').map(Number).map(nm))], [14, 14]);
   const st = src.settings;
-  add('설정', [['항목', '값'], ['배치방식', st.mode === 'group' ? '모둠' : '일반'], ['붙이기방식', OPT[st.pairMode]], ['남녀섞기', st.mix ? 'O' : 'X'], ['이전자리피하기', st.avoidPrev ? 'O' : 'X'], ['이전짝피하기', st.avoidPast ? 'O' : 'X'], ['학급이름', src.className || '']], [16, 16]);
+  add('설정', [['항목', '값'], ['배치방식', st.mode === 'group' ? '모둠' : '일반'], ['붙이기방식', OPT[st.pairMode]], ['남녀섞기', st.mix ? 'O' : 'X'], ['이전자리피하기', st.avoidPrev ? 'O' : 'X'], ['이전짝피하기', st.avoidPast ? 'O' : 'X'], ['성적고르게편성', st.balance ? 'O' : 'X'], ['학급이름', src.className || '']], [16, 16]);
   return wb;
+}
+
+/* ================= 성적 자료 (모둠 성적 고르게 편성용) ================= */
+function scoreStatus() {
+  const st = actives(), have = st.filter(x => Number.isFinite(x.score)).length;
+  const el = $('#balStatus'); el.textContent = `성적 ${have}/${st.length}명 입력됨`; el.classList.toggle('warn-red', st.length > 0 && have < st.length);
+}
+async function scoreTemplate() {
+  if (!await needXlsx()) return;
+  const st = actives(); if (!st.length) { await notify('학생 명단이 비어 있어요.'); return; }
+  const wb = XLSX.utils.book_new(), ws = XLSX.utils.aoa_to_sheet([['번호', '이름', '성적'], ...st.map(x => [x.no, x.name, Number.isFinite(x.score) ? x.score : ''])]);
+  ws['!cols'] = [8, 16, 10].map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, '성적');
+  XLSX.writeFile(wb, `${fileBase()}_성적양식.xlsx`);
+}
+async function importScores(file) {
+  if (!await needXlsx()) return;
+  let rows;
+  try {
+    const buf = await file.arrayBuffer();
+    let wb;
+    if (/\.csv$/i.test(file.name)) {   // CSV는 글자 깨짐을 막으려고 직접 해독: UTF-8 → 안 되면 한글 엑셀의 CP949
+      let txt; try { txt = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { txt = new TextDecoder('euc-kr').decode(buf); }
+      wb = XLSX.read(txt.replace(/^\uFEFF/, ''), { type: 'string' });
+    } else wb = XLSX.read(buf, { type: 'array' });
+    rows = XLSX.utils.sheet_to_json(wb.Sheets['성적'] || wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', blankrows: false }); }
+  catch (e) { await notify('파일을 읽지 못했어요.'); return; }
+  // 머리글(번호/이름/성적) 찾기. 없으면 첫 칸 = 번호 또는 이름, 둘째 칸 = 성적
+  let start = 0, cNo = -1, cName = -1, cSc = 1;
+  for (let r = 0; r < Math.min(5, rows.length); r++) {
+    const h = rows[r].map(v => String(v).trim()), a = h.findIndex(x => /^(번호|no|number)$/i.test(x)), b = h.findIndex(x => /^(이름|성명|name)$/i.test(x)), c = h.findIndex(x => /^(성적|점수|score|grade)/i.test(x));
+    if (c >= 0 && (a >= 0 || b >= 0)) { start = r + 1; cNo = a; cName = b; cSc = c; break; }
+  }
+  const st = actives(); let ok = 0; const miss = [];
+  rows.slice(start).forEach((row, i) => {
+    const noTok = cNo >= 0 ? String(row[cNo]).trim() : cName < 0 ? String(row[0]).trim() : '', nameTok = cName >= 0 ? String(row[cName]).trim() : cNo < 0 ? String(row[0]).trim() : '';
+    if (!noTok && !nameTok) return;
+    let stu = /^\d+$/.test(noTok) ? st.find(x => x.no === +noTok) : null;
+    if (!stu) { const t = nameTok || noTok, same = st.filter(x => x.name === t); if (same.length === 1) stu = same[0]; }
+    const sc = parseFloat(String(row[cSc] ?? '').replace(/,/g, ''));
+    if (!stu || !Number.isFinite(sc)) { miss.push(`${start + i + 1}행(${noTok || nameTok})`); return; }
+    stu.score = sc; ok++;
+  });
+  save(); renderOptions();
+  const left = actives().filter(x => !Number.isFinite(x.score)).length;
+  if (miss.length || left) await notify(`성적 ${ok}명을 불러왔어요.` + (miss.length ? '\n\n찾지 못했거나 점수가 올바르지 않은 줄: ' + miss.slice(0, 8).join(', ') + (miss.length > 8 ? ` 외 ${miss.length - 8}건` : '') : '') + (left ? '\n\n아직 성적이 없는 학생이 ' + left + '명 있어요.' : ''), '성적을 불러왔어요');
+  else toast(`성적 ${ok}명을 불러왔어요.`);
 }
 
 async function exportXlsx() { if (!await needXlsx()) return; XLSX.writeFile(buildWorkbook(state), `${fileBase()}_자리설정_${today()}.xlsx`); }
@@ -916,7 +1033,8 @@ async function importXlsx(file) {
         sr.slice(1).filter(r => String(r[1] ?? '').trim() !== '').forEach((r, i) => {
           const o = parseInt(r[0], 10);
           const nm0 = String(r[1]).trim(), vac = nm0 === '결번';   // 이름 칸에 '결번'이라고 적힌 번호는 없는 학생
-          next.students.push({ id: next.nextId++, no: i + 1, name: vac ? '' : nm0, gender: vac ? '' : parseGender(r[2]), vacant: vac, _orig: Number.isFinite(o) ? o : i + 1 });
+          const sc = parseFloat(String(r[3] ?? '').replace(/,/g, ''));
+          next.students.push({ id: next.nextId++, no: i + 1, name: vac ? '' : nm0, gender: vac ? '' : parseGender(r[2]), vacant: vac, ...(!vac && Number.isFinite(sc) ? { score: sc } : {}), _orig: Number.isFinite(o) ? o : i + 1 });
         });
       } else next.students.forEach(s => (s._orig = s.no));
 
@@ -950,6 +1068,7 @@ async function importXlsx(file) {
         else if (k === '남녀섞기') settings.mix = yes;
         else if (k === '이전자리피하기') settings.avoidPrev = yes;
         else if (k === '이전짝피하기') settings.avoidPast = yes;
+        else if (k === '성적고르게편성') settings.balance = yes;
         else if (k === '학급이름') next.className = v;
       }
       next.pairs = []; next.seps = []; next.fixed = []; next.ranges = [];
@@ -1354,6 +1473,70 @@ function autoGroups(w, h) {
   return g;
 }
 
+/* ================= 드롭다운: 브라우저 기본 목록 대신 모서리가 둥근 자체 목록 ================= */
+// 모든 <select>를 누르면(또는 Enter·Space·↓) 자체 목록을 띄우고, 고르면 select 값을 바꾼 뒤 change 이벤트를 보낸다(기존 코드는 그대로 동작)
+let ddPop = null, ddSel = null, ddIdx = -1;
+function closeDropdown(refocus) {
+  if (!ddPop) return;
+  ddPop.remove(); ddPop = null;
+  const sel = ddSel; ddSel = null; ddIdx = -1;
+  if (refocus && sel) sel.focus();
+}
+function pickDropdown(i) {
+  const sel = ddSel, opt = sel && sel.options[i]; if (!opt || opt.disabled) return;
+  closeDropdown(true);
+  if (sel.selectedIndex !== i) { sel.selectedIndex = i; sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+}
+function markDropdown(i, scroll) {
+  const items = [...ddPop.children]; if (!items.length) return;
+  ddIdx = i; items.forEach((el, k) => el.classList.toggle('act', k === i));
+  if (scroll && items[i]) items[i].scrollIntoView({ block: 'nearest' });
+}
+function openDropdown(sel) {
+  closeDropdown();
+  const cs = getComputedStyle(sel), r = sel.getBoundingClientRect(), host = sel.closest('dialog') || document.body;
+  ddSel = sel; ddPop = document.createElement('div');
+  ddPop.className = 'dd-pop'; ddPop.setAttribute('role', 'listbox');
+  ddPop.style.fontSize = cs.fontSize; ddPop.style.minWidth = r.width + 'px';
+  ddPop.innerHTML = [...sel.options].map((o, i) => `<div class="dd-opt${i === sel.selectedIndex ? ' sel' : ''}${o.disabled ? ' dis' : ''}" role="option" data-i="${i}">${esc(o.textContent)}</div>`).join('');
+  host.appendChild(ddPop);
+  const ph = ddPop.offsetHeight, below = innerHeight - r.bottom - 8, above = r.top - 8, up = below < Math.min(ph, 180) && above > below;
+  ddPop.style.maxHeight = Math.max(80, Math.min(260, up ? above : below)) + 'px';
+  ddPop.style.left = Math.min(r.left, Math.max(8, innerWidth - ddPop.offsetWidth - 8)) + 'px';
+  ddPop.style.top = up ? Math.max(8, r.top - ddPop.offsetHeight - 4) + 'px' : r.bottom + 4 + 'px';
+  markDropdown(Math.max(0, sel.selectedIndex), true);
+}
+document.addEventListener('mousedown', e => {
+  const t = e.target;
+  if (ddPop && ddPop.contains(t)) { e.preventDefault(); return; }
+  if (t instanceof HTMLSelectElement && !t.disabled) {
+    e.preventDefault(); t.focus();
+    if (ddSel === t) closeDropdown(); else openDropdown(t);
+    return;
+  }
+  closeDropdown();
+}, true);
+document.addEventListener('click', e => {
+  const o = ddPop && e.target.closest && e.target.closest('.dd-opt'); if (o && ddPop.contains(o)) pickDropdown(+o.dataset.i);
+});
+document.addEventListener('keydown', e => {
+  if (ddPop) {
+    const n = ddPop.children.length, step = d => { let i = ddIdx; for (let k = 0; k < n; k++) { i = (i + d + n) % n; if (!ddSel.options[i].disabled) break; } markDropdown(i, true); };
+    if (e.key === 'ArrowDown') { e.preventDefault(); step(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
+    else if (e.key === 'Home') { e.preventDefault(); markDropdown(0, true); }
+    else if (e.key === 'End') { e.preventDefault(); markDropdown(n - 1, true); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickDropdown(ddIdx); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeDropdown(true); }
+    else if (e.key === 'Tab') closeDropdown();
+    return;
+  }
+  const t = e.target;
+  if (t instanceof HTMLSelectElement && !t.disabled && (e.key === 'Enter' || e.key === ' ' || (e.altKey && e.key === 'ArrowDown'))) { e.preventDefault(); openDropdown(t); }
+}, true);
+window.addEventListener('resize', () => closeDropdown());
+window.addEventListener('scroll', e => { if (ddPop && !ddPop.contains(e.target)) closeDropdown(); }, true);
+
 /* ================= 도움말 모달 (오른쪽 위 X 또는 Esc로 닫힘) ================= */
 function openHelp(title, html) {
   $('#helpTitle').textContent = title; $('#helpBody').innerHTML = html;
@@ -1441,11 +1624,28 @@ document.addEventListener('click', async e => {
   const idx = t.dataset.i != null ? +t.dataset.i : state.activeSlot;
   if (busy && act !== 'picker-cancel') return;
   switch (act) {
+    case 'score-template': scoreTemplate(); break;
+    case 'score-upload': $('#scoreFile').click(); break;
+    case 'score-clear':
+      if (!state.students.some(x => Number.isFinite(x.score))) { toast('지울 성적이 없어요.'); break; }
+      if (!await ask('입력된 모든 학생의 성적을 지울까요?', { title: '성적 지우기', ok: '모두 지우기', danger: true })) break;
+      state.students.forEach(x => { delete x.score; }); save(); renderOptions(); toast('성적을 모두 지웠어요.'); break;
+    case 'bal-help': openHelp('성적 고르게 편성', `
+      <p>모둠 배치에서 모둠의 성적이 한쪽으로 쏠리지 않게 편성해요. (모둠이 n개일 때)</p>
+      <ul><li>성적 <b>1등~n등</b>은 서로 다른 모둠에 배정해요.</li><li>성적 <b>뒤에서 1등~n등</b>도 서로 다른 모둠에 배정해요.</li><li>나머지 학생은 <b>모둠별 평균의 차이가 작아지도록</b> 배치해요.</li></ul>
+      <p>점수가 높을수록 성적이 좋은 것으로 봐요. 동점이면 무작위로 정해요. 붙이기·떼기·고정석·범위 같은 다른 조건도 함께 지켜요.</p>
+      <p>성적은 엑셀(.xlsx, .csv)로 올려요. <b>번호(또는 이름)</b>와 <b>성적</b> 열이 있으면 되고, "양식 받기"로 명단이 채워진 양식을 받을 수 있어요. 올린 성적은 저장 파일과 엑셀 내보내기에 함께 저장돼요.</p>`); break;
     case 'layout-help': openHelp('좌석 배열 — 사용 방법', `
       <ul>
         <li>칸을 누르면 <b>책상 있음/없음(빈칸)</b>이 바뀌어요.</li>
         <li>행·열 머리글을 누르면 그 행·열 전체가 한 번에 바뀌어요.</li>
         <li>책상이 하나도 없는 행·열은 <b>통로</b>로 표시되고 번호에서 빠져요.</li>
+      </ul>
+      <p><b>모둠 편집 모드</b></p>
+      <ul>
+        <li>칸을 <b>더블클릭</b>해서 모둠 번호를 입력해요.</li>
+        <li><b>격자 묶기</b>(가로×세로)나 <b>인원수 묶기</b>(모둠 인원수)로 한꺼번에 묶을 수도 있어요.</li>
+        <li><b>모둠 지우기</b>를 누르면 모든 모둠이 지워져요.</li>
       </ul>`); break;
     case 'range-help': openHelp('범위 제한 학생 — 사용 방법', `
       <p>범위를 정한 학생은 <b>지정한 구역 안에서만</b> 섞여요.<br>(예: 시력 때문에 앞 두 행)</p>
@@ -1463,6 +1663,7 @@ document.addEventListener('click', async e => {
         <li>통로(책상이 하나도 없는 행·열)는 칸 수에 넣지 않아요.</li>
         <li>모둠 배치에서는 반경 대신 <b>"다른 모둠"</b>이면 떼어 앉힌 것으로 봐요.</li>
       </ul>`); break;
+    case 'show-warn': { let w = []; try { w = JSON.parse(t.dataset.warn); } catch (e) { /* ignore */ } openHelp('배치 안내', `<ul>${w.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`); break; }
     case 'help-close': $('#helpModal').close(); break;
     case 'hist-close': $('#historyView').close(); break;
     case 'history-view': { const h = histById(t.dataset.hid); if (h) openHistoryView(h); break; }
@@ -1514,6 +1715,11 @@ document.addEventListener('click', async e => {
       toast(`${realAdded}명을 ${state.students.length > created.length ? (where === 'front' ? '맨 앞에 ' : '맨 뒤에 ') : ''}추가했어요.` + (vacantAdded ? ` (결번 ${vacantAdded}개)` : ''));
       if (enforceMix()) { renderOptions(); toast('성별이 지정되지 않은 학생이 있어 "남녀 섞어 앉히기"를 해제했어요.', 3600); } break;
     }
+    case 'clear-genders':
+      if (!state.students.some(s => s.gender)) { toast('지울 성별 정보가 없어요.'); break; }
+      if (!await ask('모든 학생의 성별 정보를 지울까요?\n(남녀 섞어 앉히기가 켜져 있으면 함께 해제돼요)', { title: '성별 정보 지우기', ok: '모두 지우기', danger: true })) break;
+      state.students.forEach(s => { s.gender = ''; });
+      enforceMix(); save(); renderStudents(); renderConstraints(); renderOptions(); toast('모든 학생의 성별 정보를 지웠어요.'); break;
     case 'clear-students':
       if (!state.students.length) break;
       if (!await ask('학생 명단과 모든 조건(붙이기·떼기·고정석·범위·짝 기록)을 삭제할까요?', { ok: '모두 삭제', danger: true })) break;
@@ -1674,17 +1880,18 @@ document.addEventListener('change', async e => {
     state.layout.disabled = state.layout.disabled.filter(k => { const [r, c] = k.split(',').map(Number); return r < rows && c < cols; });
     pruneConstraints(); save(); renderLayout(); renderConstraints();
   } else if (t.id === 'grpSize') { updateGroupSizeUI();
-  } else if (t.id === 'optMode') {
+  } else if (t.id === 'optMode' || t.id === 'optMode2') {
     // 모둠 → 일반 자리: 모둠 기준(같은 모둠/다른 모둠)으로 만든 붙이기·떼기는 의미가 달라지므로 초기화
     if (t.value === 'seat' && state.settings.mode === 'group' && (state.pairs.length || state.seps.length)) {
       const ok = await ask(`일반 자리 모드로 돌아가면 붙여 앉힐 학생(${state.pairs.length}쌍)과 떼어 앉힐 학생(${state.seps.length}쌍)에 설정한 내용이 초기화됩니다.
 계속할까요?`,
         { title: '설정이 초기화돼요', ok: '초기화하고 변경', danger: true });
-      if (!ok) { t.value = 'group'; return; }
+      if (!ok) { $('#optMode').value = $('#optMode2').value = 'group'; return; }
       state.pairs = []; state.seps = [];
       renderConstraints();
     }
     state.settings.mode = t.value; save(); renderOptions();
+    if (currentTab() === 'shuffle') renderShuffle();   // 모둠 모드에서 모둠이 없을 때의 안내·배치 버튼 상태 갱신
     if (t.value === 'group' && !Object.keys(state.layout.groups).length)
       await notify('모둠 배치를 쓰려면 먼저 모둠을 만들어야 해요.\n좌석 배열의 "모둠 편집 모드"에서 모둠을 설정해 주세요.');
   }
@@ -1697,6 +1904,7 @@ document.addEventListener('change', async e => {
   }
   else if (t.id === 'optAvoid') { state.settings.avoidPrev = t.checked; save(); }
   else if (t.id === 'optPast') { state.settings.avoidPast = t.checked; save(); }
+  else if (t.id === 'optFixed') { state.settings.showFixed = t.checked; save(); }
   else if (t.id === 'optAnim') { state.settings.animation = t.checked; save(); }
   else if (t.id === 'optHistory') { state.settings.keepHistory = t.checked; save(); renderHistory(); }
   else if (t.id === 'histMax') {
@@ -1707,6 +1915,8 @@ document.addEventListener('change', async e => {
   else if (t.classList.contains('hist-note')) { const h = histById(t.dataset.hid); if (h) { h.note = t.value.trim(); save(); } }
   else if (t.id === 'showAll') { state.showAll = t.checked; save(); renderShuffle(); }
   else if (t.id === 'fileJson') { if (t.files[0]) loadJson(t.files[0]); t.value = ''; }
+  else if (t.id === 'scoreFile') { if (t.files[0]) importScores(t.files[0]); t.value = ''; }
+  else if (t.id === 'optBal') { state.settings.balance = t.checked; save(); renderOptions(); }
   else if (t.id === 'fileXlsx') { if (t.files[0]) importXlsx(t.files[0]); t.value = ''; }
 });
 $('#className').addEventListener('input', e => { state.className = e.target.value; save(); if (currentTab() === 'final') renderFinal(); });   // 확정된 자리 화면의 제목도 바로 따라가게

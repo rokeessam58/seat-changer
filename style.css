@@ -248,7 +248,8 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 /* 물음표 도움말 */
 .help-btn{width:1.5rem;height:1.5rem;border-radius:50%;border:2px solid var(--brand-soft);background:#fff;color:var(--brand);font-family:var(--font-cute);font-size:.85rem;padding:0;line-height:1;cursor:pointer;margin-left:6px;vertical-align:middle;transition:.15s}
 .help-btn:hover{background:var(--brand-soft);color:var(--brand-ink)}
-.help{padding-right:56px}   /* 위치는 dialog 기본값(fixed)을 유지해야 열 때 스크롤이 튀지 않음 */
+/* 위치는 dialog 기본값(fixed)을 유지해야 열 때 스크롤이 튀지 않음. 오른쪽 위 X와 겹치는 건 제목 줄뿐이므로 제목만 비켜 주고, 본문은 모달 폭을 끝까지 쓴다 */
+.help>h3{padding-right:38px}
 .help .x-close{position:absolute;top:12px;right:14px;width:2rem;height:2rem;border-radius:50%;border:2px solid var(--line);background:#fff;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;padding:0}
 .help .x-close:hover{border-color:var(--danger);color:var(--danger)}
 /* X 표시는 글자 대신 두 선으로 그려서 글꼴과 상관없이 원의 정중앙에 오게 함 */
@@ -321,7 +322,7 @@ dialog h3{margin:0 0 6px;font-size:1.25rem;color:#6b55c4}
 /* 학생 명단 표: 열 폭을 고정해서 학생이 없을 때도 머리글 위치가 바뀌지 않게 함 */
 #studentTable{table-layout:fixed}
 #studentTable th:nth-child(1){width:46px}
-#studentTable th:nth-child(3){width:66px}
+#studentTable th:nth-child(3){width:74px;white-space:nowrap;padding-right:2px}
 #studentTable th:nth-child(4){width:48px}
 #studentTable th:nth-child(5){width:36px}
 /* 학생이 없을 때의 안내 문구: 학생 한 줄과 같은 높이·위치, 아래 가로선 없음 */
@@ -409,3 +410,50 @@ h2 .warn-red{margin-left:.6rem;vertical-align:middle}
 .le{position:relative}
 .le .grp-edit{position:absolute;box-sizing:border-box;margin:0;padding:0;border:2px solid var(--brand);border-radius:9px;background:#fff;color:var(--text,#3d3252);text-align:center;font:inherit;font-family:var(--font-cute);font-weight:700;font-size:1rem;outline:none;z-index:2}
 .grp-tools .or-txt{color:var(--muted);font-size:.9rem}
+
+/* 배치 옵션을 다 지키지 못했을 때: 교탁 줄 오른쪽 위의 느낌표 아이콘 */
+.podium-row{position:relative;display:flex;justify-content:center;width:100%}
+.warn-btn{position:absolute;right:0;top:0;width:1.3rem;height:1.3rem;border-radius:50%;border:2px solid var(--none-b);padding:0;background:#fff;color:var(--brand);font-family:var(--font-cute);font-weight:700;font-size:.8rem;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.warn-btn:hover{background:var(--none)}
+.board.mini .warn-btn{width:1.1rem;height:1.1rem;font-size:.68rem}
+h2 .h2-chk{display:inline-flex;margin-left:.6rem;font-size:.9rem;font-weight:400;font-family:var(--font-body);color:var(--ink);vertical-align:middle;white-space:nowrap}
+
+/* 자체 드롭다운 목록(모서리가 둥근 직사각형) */
+.dd-pop{position:fixed;z-index:10000;box-sizing:border-box;overflow-y:auto;padding:4px;background:#fff;border:2px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(80,60,160,.18);font-family:var(--font-body)}
+.dd-opt{padding:5px 10px;border-radius:8px;cursor:pointer;white-space:nowrap;color:var(--ink);line-height:1.3}
+.dd-opt.act{background:#f1ebff}
+.dd-opt.sel{color:var(--brand);font-weight:700}
+.dd-opt.dis{color:#b9b0cc;cursor:not-allowed}
+
+/* 학생 명단 '성별' 머리말 옆의 작은 X(전체 성별 지우기) */
+.th-x{position:relative;display:inline-block;width:.85rem;height:.85rem;margin-left:.1rem;padding:0;border:0;border-radius:50%;background:none;color:inherit;vertical-align:middle;cursor:pointer;opacity:.7}
+.th-x::before,.th-x::after{content:'';position:absolute;left:50%;top:50%;width:.5rem;height:2px;border-radius:2px;background:currentColor}
+.th-x::before{transform:translate(-50%,-50%) rotate(45deg)}
+.th-x::after{transform:translate(-50%,-50%) rotate(-45deg)}
+.th-x:hover,.th-x:focus-visible{background:rgba(53,32,110,.16);opacity:1;outline:none}
+.mode-lbl{font-weight:700}
+.mode-lbl select{font-weight:700}
+.mode-mark{color:var(--brand)}
+
+/* 이전 짝 기록 줄: '이전 짝 피하기'의 글자 시작 위치에 맞춰 시작 */
+/* '이전 짝 피하기' 바로 아래, 글자 시작("이")에 맞춰 시작 */
+.past-wrap{display:flex;flex-direction:column}
+.past-line{box-sizing:border-box;margin-top:1px;padding-left:30px;line-height:1.2;font-size:.9rem;color:var(--muted)}
+.link-danger{border:0;background:none;padding:0;margin-left:.4rem;font:inherit;color:var(--danger);text-decoration:underline;cursor:pointer}
+.link-danger:hover{filter:brightness(.85)}
+
+/* 배치 옵션 줄 구성(좁은 화면): 1줄 배치 모드 / 2줄 남녀 섞기·직전 자리 / 3줄 이전 짝. 너무 좁으면 항목마다 한 줄씩 */
+.opts .opt-full{width:100%}
+.opt-line{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 24px;width:100%}
+@media (min-width:1240px){.opt-line{flex-direction:column;gap:12px;width:auto}}
+
+/* 성적 고르게 편성 */
+.bal-head{display:flex;align-items:center}
+.bal-tools{display:flex;flex-direction:column;align-items:flex-start;gap:3px;margin:1px 0 0 30px;line-height:1.2;font-size:.9rem}
+.bal-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.bal-tools #balStatus{color:var(--muted)}
+.bal-tools .link-danger{margin-left:.2rem}
+/* 성적 고르게 편성 옆 물음표: 보라색 원 + 흰 물음표(테두리 없음), 지름 = 글자 높이(1em) */
+.bal-head .help-btn{width:1em;height:1em;border:0;background:var(--brand-soft);color:#fff;font-size:1rem;margin-left:8px;display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.bal-head .help-btn::before{content:'?';font-size:.68em;font-weight:700}
+.bal-head .help-btn:hover{background:#cbbaff;color:#fff}
