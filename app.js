@@ -1686,7 +1686,7 @@ document.addEventListener('change', async e => {
     }
     state.settings.mode = t.value; save(); renderOptions();
     if (t.value === 'group' && !Object.keys(state.layout.groups).length)
-      await notify('모둠 배치를 쓰려면 먼저 모둠을 만들어야 해요.\n좌석 배열의 "모둠 편집 모드"에서 칸을 더블클릭해 번호를 입력하거나 "격자 묶기"나 "인원수 묶기"를 눌러 주세요.');
+      await notify('모둠 배치를 쓰려면 먼저 모둠을 만들어야 해요.\n좌석 배열의 "모둠 편집 모드"에서 모둠을 설정해 주세요.');
   }
   else if (t.id === 'optPairMode') { state.settings.pairMode = t.value; save(); }
   else if (t.id === 'optMix') {
