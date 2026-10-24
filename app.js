@@ -27,7 +27,7 @@ const defaultState = () => ({
   ranges: [],              // {s,r1,r2,c1,c2}
   pairHistory: [],         // ["작은id-큰id"] 이전에 짝(또는 같은 모둠)이었던 쌍
   history: [],             // 확정 이력(최신이 앞): {hid, at, seats, mode, warnings, snap:{students,layout,fixed}, note}
-  settings: { mode: 'seat', pairMode: 'side', mix: false, avoidPrev: true, avoidPast: true, showFixed: true, balance: false, animation: true, keepHistory: false, historyMax: 10 },
+  settings: { mode: 'seat', pairMode: 'side', mix: false, avoidPrev: true, avoidPast: true, showFixed: true, balance: false, sound: true, animation: true, keepHistory: false, historyMax: 10 },
   slots: Array(SLOT_N).fill(null),   // {seats:{id:[r,c]}, warnings:[], at, mode}
   final: null,
   activeSlot: 0,
@@ -685,7 +685,7 @@ function syncViewSeg() { $$('#viewSeg button, #viewSeg2 button').forEach(b => b.
 function renderShuffle() {
   syncViewSeg();
   $('#showAll').checked = state.showAll;
-  $('#optAnim').checked = state.settings.animation;
+  $('#optAnim').checked = state.settings.animation; $('#optSound').checked = state.settings.sound !== false;
   $('#optMode2').value = state.settings.mode;
   $('#slotBar').innerHTML = state.slots.map((s, i) =>
     `<button class="slot ${s ? 'filled' : ''} ${i === state.activeSlot && !state.showAll ? 'active' : ''}" data-slot="${i}" ${state.showAll || editing ? 'disabled' : ''}>슬롯 ${i + 1}${s ? ' ♥' : ''}</button>`).join('');
@@ -745,11 +745,13 @@ function runSpin(seats, skipP) {
     };
     let iv; const finish = () => { clearInterval(iv); seats.forEach(lock); res(); };
     iv = setInterval(() => {
-      const t = performance.now() - t0; let left = 0;
+      const t = performance.now() - t0; let left = 0, locked = 0;
       seats.forEach(el => {
         if (el._locked) return;
-        if (t >= el._lock) lock(el); else { left++; el.querySelector('.nm').textContent = names[(Math.random() * names.length) | 0]; }
+        if (t >= el._lock) { lock(el); locked++; } else { left++; el.querySelector('.nm').textContent = names[(Math.random() * names.length) | 0]; }
       });
+      if (left) SFX.tick();      // 릴 도는 소리
+      if (locked) SFX.ding();    // 자리가 정해지는 소리(한 번에 여러 칸이어도 한 번만)
       if (!left) finish();
     }, 70);
     skipP.then(finish);
@@ -767,6 +769,71 @@ function confetti() {
   })();
 }
 
+/* ---- 효과음: 파일 없이 Web Audio로 직접 합성 (① 궁금증 ② 슬롯머신 ③ 팡파레) ---- */
+const SFX = (() => {
+  let ctx = null, master = null;
+  const on = () => state.settings.sound !== false;
+  const unlock = () => {
+    if (!on()) return null;
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+      ctx = new AC(); master = ctx.createGain(); master.gain.value = 0.4; master.connect(ctx.destination);
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  };
+  const hz = m => 440 * 2 ** ((m - 69) / 12);
+  const group = () => { const bus = ctx.createGain(); bus.connect(master); return { bus, stop() { try { bus.gain.setTargetAtTime(0, ctx.currentTime, 0.03); setTimeout(() => bus.disconnect(), 300); } catch (e) { /* ignore */ } } }; };
+  // 음 하나: type 파형, vol 크기, vib 떨림(Hz 단위 깊이), to 끝 음높이(미끄러짐), lp 저역통과
+  const tone = (bus, t, midi, dur, { type = 'sine', vol = 0.25, attack = 0.012, vib = 0, to = null, lp = 0 } = {}) => {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.type = type;
+    o.frequency.setValueAtTime(hz(midi), t); if (to != null) o.frequency.exponentialRampToValueAtTime(hz(to), t + dur);
+    if (vib) { const l = ctx.createOscillator(), lg = ctx.createGain(); l.frequency.value = 6.5; lg.gain.value = vib; l.connect(lg); lg.connect(o.frequency); l.start(t); l.stop(t + dur + 0.1); }
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    let node = o; if (lp) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; o.connect(f); node = f; }
+    node.connect(g); g.connect(bus); o.start(t); o.stop(t + dur + 0.05);
+  };
+  let noiseBuf = null;
+  const noise = (bus, t, dur, { vol = 0.2, type = 'highpass', freq = 2500 } = {}) => {
+    if (!noiseBuf) { noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(); src.buffer = noiseBuf; f.type = type; f.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(bus); src.start(t); src.stop(t + dur + 0.02);
+  };
+  // ① 궁금증: 마법 반짝 — 하프처럼 쓸어 올리는 소리와 반짝이는 종소리
+  const curious = () => {
+    if (!unlock()) return null;
+    const { bus, stop } = group(), t = ctx.currentTime + 0.02;
+    [60, 64, 67, 72, 76, 79, 84, 88, 91].forEach((m, i) => { tone(bus, t + i * 0.09, m, 0.6, { vol: 0.13, attack: 0.004 }); tone(bus, t + i * 0.09, m + 17.57, 0.6, { vol: 0.0325, attack: 0.004 }); });
+    [96, 100, 103, 108].forEach((m, i) => tone(bus, t + 1 + i * 0.17, m, 0.5, { vol: 0.06, attack: 0.003 }));
+    tone(bus, t, 36, 1.8, { vol: 0.12, attack: 0.6 });
+    return { stop };
+  };
+  // ② 슬롯머신: 릴이 돌아가는 '또르르' 딸깍 소리, 칸이 정해질 때마다 맑은 '띵'
+  const tick = () => {
+    if (!unlock()) return;
+    const t = ctx.currentTime;
+    noise(master, t, 0.02, { vol: 0.12, freq: 3000 });
+    tone(master, t, 78 + ((Math.random() * 7) | 0), 0.04, { type: 'square', vol: 0.05, attack: 0.003, lp: 3500 });
+  };
+  const ding = () => {
+    if (!unlock()) return;
+    const t = ctx.currentTime, m = [88, 91, 93, 95, 100][(Math.random() * 5) | 0];
+    tone(master, t, m, 0.22, { type: 'sine', vol: 0.12, attack: 0.004 });
+    tone(master, t, m + 12, 0.14, { type: 'sine', vol: 0.04, attack: 0.004 });
+  };
+  // ③ 팡파레: 따따따 따안~ (도 도 도 + 도미솔도 화음)
+  const fanfare = () => {
+    if (!unlock()) return;
+    const { bus } = group(), t = ctx.currentTime + 0.03, o = { type: 'sawtooth', lp: 2600 };
+    [0, 0.15, 0.3].forEach(d => tone(bus, t + d, 72, 0.13, { ...o, vol: 0.2 }));
+    tone(bus, t + 0.45, 76, 0.13, { ...o, vol: 0.2 });
+    [67, 72, 76, 79, 84].forEach(m => tone(bus, t + 0.6, m, 1.1, { ...o, vol: 0.13, attack: 0.02, vib: 3 }));
+    noise(bus, t + 0.6, 0.35, { vol: 0.12, freq: 5000 });
+  };
+  return { unlock, curious, tick, ding, fanfare };
+})();
+
 async function playShuffle(applyFn, roots = ['#shuffleArea']) {
   if (busy) return;
   busy = true;
@@ -774,6 +841,9 @@ async function playShuffle(applyFn, roots = ['#shuffleArea']) {
   const ov = $('#overlay'); let skip; const skipP = new Promise(r => (skip = r));
   let textTimer;
   try {
+    let cur = null;
+    if (anim) cur = SFX.curious();   // 누르자마자 궁금증 유발 효과음
+    skipP.then(() => cur && cur.stop());
     if (anim) {
       const msgs = ['자리를 섞는 중…', '누가 어디에 앉게 될까요?', '두구두구두구…'];
       let k = 0; $('#overlayText').textContent = msgs[0];
@@ -793,6 +863,7 @@ async function playShuffle(applyFn, roots = ['#shuffleArea']) {
       document.removeEventListener('pointerdown', onDown);
       confetti();
     }
+    SFX.fanfare();   // 배치 완료 팡파레
   } catch (e) {
     clearInterval(textTimer); ov.hidden = true; busy = false;
     renderShuffle(); await notify(e.message || '배치 중 오류가 발생했어요.', '배치할 수 없어요');
@@ -1906,6 +1977,7 @@ document.addEventListener('change', async e => {
   else if (t.id === 'optPast') { state.settings.avoidPast = t.checked; save(); }
   else if (t.id === 'optFixed') { state.settings.showFixed = t.checked; save(); }
   else if (t.id === 'optAnim') { state.settings.animation = t.checked; save(); }
+  else if (t.id === 'optSound') { state.settings.sound = t.checked; save(); if (t.checked) SFX.unlock(); }
   else if (t.id === 'optHistory') { state.settings.keepHistory = t.checked; save(); renderHistory(); }
   else if (t.id === 'histMax') {
     const n = +t.value;
