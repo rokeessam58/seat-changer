@@ -382,7 +382,7 @@ function openPicker({ title, hint, mode, initial, cb }) {
     const tools = document.createElement('div'); tools.className = 'seg left'; tools.id = 'pickerTools';
     [['rect', '사각형으로 선택'], ['cell', '한 칸씩 선택']].forEach(([k, t]) => {
       const b = document.createElement('button'); b.textContent = t; b.dataset.tool = k;
-      b.onclick = () => { pk.tool = k; pk.anchor = null; drawPicker(); };
+      b.onclick = () => { pk.tool = k; pk.anchor = null; pk.dragging = false; drawPicker(); };
       tools.appendChild(b);
     });
     q.appendChild(tools);
@@ -400,8 +400,9 @@ function drawPicker() {
     const pre = pk.anchor && pk.anchor.r === r && pk.anchor.c === c;
     h += `<button class="pk ${isOff(r, c) ? 'offc' : ''} ${sel ? 'sel' : ''} ${pre ? 'pre' : ''}" data-r="${r}" data-c="${c}">${D.rowNo[r] ?? ''}-${D.colNo[c] ?? ''}</button>`;
   }
-  grid.innerHTML = h;
-  $('#pickerHint').textContent = range ? `${pk.base} (선택된 칸: ${pk.set.size}개)` : pk.base;
+  grid.innerHTML = h; grid.classList.toggle('paint', range && pk.tool === 'rect');   // 끌어서 고르는 동안 화면이 스크롤되지 않게
+  $('#pickerHint').textContent = pk.base;
+  const cnt = $('#pickerCount'); cnt.hidden = !range; cnt.textContent = `(선택된 칸: ${pk.set.size}개)`;   // 선택된 칸 수는 제목 옆에 표시
 }
 /* ================= 검증 / 배치 알고리즘 ================= */
 function validate() {
@@ -1638,12 +1639,68 @@ function editGroupNo(k) {
   inp.addEventListener('blur', () => finish(true));
   le.appendChild(inp); inp.focus(); inp.select();
 }
+// 모둠 편집 모드에서 칸을 오른쪽 클릭하면 그 자리의 상태에 맞춰 "자리 지우기"(책상 있음) / "자리 추가하기"(책상 없음) 메뉴를 띄운다
+let cellMenu = null;
+function closeCellMenu() { if (cellMenu) { cellMenu.remove(); cellMenu = null; } }
+async function toggleSeat(k) {
+  if (!await guard()) return;
+  const a = state.layout.disabled, i = a.indexOf(k);
+  if (i >= 0) a.splice(i, 1); else { a.push(k); delete state.layout.groups[k]; }
+  pruneConstraints(); save(); renderLayout(); renderConstraints();
+}
+document.addEventListener('contextmenu', e => {
+  const b = e.target.closest && e.target.closest('#layoutEditor .cell');
+  if (!b || editMode !== 'group' || currentTab() !== 'setup') { closeCellMenu(); return; }
+  e.preventDefault(); closeCellMenu(); closeDropdown();
+  const k = b.dataset.lay, off = b.classList.contains('off');
+  cellMenu = document.createElement('div'); cellMenu.className = 'ctx-menu'; cellMenu.setAttribute('role', 'menu');
+  cellMenu.innerHTML = `<button type="button" role="menuitem" class="${off ? '' : 'danger'}">${off ? '자리 추가하기' : '자리 지우기'}</button>`;
+  document.body.appendChild(cellMenu);
+  cellMenu.style.left = Math.min(e.clientX, innerWidth - cellMenu.offsetWidth - 8) + 'px';
+  cellMenu.style.top = Math.min(e.clientY, innerHeight - cellMenu.offsetHeight - 8) + 'px';
+  cellMenu.querySelector('button').onclick = () => { closeCellMenu(); toggleSeat(k); };
+  cellMenu.querySelector('button').focus();
+});
+document.addEventListener('mousedown', e => { if (cellMenu && !cellMenu.contains(e.target)) closeCellMenu(); }, true);
+document.addEventListener('keydown', e => { if (cellMenu && e.key === 'Escape') { e.preventDefault(); closeCellMenu(); } }, true);
+window.addEventListener('resize', closeCellMenu);
+window.addEventListener('scroll', closeCellMenu, true);
 document.addEventListener('dblclick', async e => {
   const b = e.target.closest('.cell.on'); if (!b || editMode !== 'group' || currentTab() !== 'setup') return;
   const k = b.dataset.lay;
   if (state.settings.mode === 'group' && !await guard()) return;
   editGroupNo(k);
 });
+// 범위 선택(사각형): 모서리 칸을 누른 채 반대편 모서리 칸까지 끌었다 놓으면 그 사이의 칸이 모두 선택돼요
+const pkCellAt = (x, y) => { const el = document.elementFromPoint(x, y), b = el && el.closest && el.closest('.pk'); return b && !b.classList.contains('offc') ? { r: +b.dataset.r, c: +b.dataset.c } : null; };
+function paintPkDrag() {
+  const a = pk.anchor, d = pk.cur;
+  $$('#pickerGrid .pk').forEach(b => {
+    const r = +b.dataset.r, c = +b.dataset.c;
+    const inside = !!(a && d) && r >= Math.min(a.r, d.r) && r <= Math.max(a.r, d.r) && c >= Math.min(a.c, d.c) && c <= Math.max(a.c, d.c) && !b.classList.contains('offc');
+    b.classList.toggle('drag', inside); b.classList.toggle('pre', !!a && a.r === r && a.c === c);
+  });
+}
+document.addEventListener('pointerdown', e => {
+  const b = e.target.closest && e.target.closest('#pickerGrid .pk');
+  if (!b || pk.mode !== 'range' || pk.tool !== 'rect' || e.button !== 0 || b.classList.contains('offc')) return;
+  e.preventDefault();
+  pk.anchor = { r: +b.dataset.r, c: +b.dataset.c }; pk.cur = pk.anchor; pk.dragging = true; paintPkDrag();
+});
+document.addEventListener('pointermove', e => {
+  if (!pk.dragging) return;
+  const c = pkCellAt(e.clientX, e.clientY);
+  if (c && (!pk.cur || c.r !== pk.cur.r || c.c !== pk.cur.c)) { pk.cur = c; paintPkDrag(); }
+});
+const endPkDrag = commit => {
+  if (!pk.dragging) return;
+  pk.dragging = false;
+  if (commit && pk.anchor && pk.cur) addRect(pk.anchor.r, pk.anchor.c, pk.cur.r, pk.cur.c);
+  pk.anchor = null; pk.cur = null; drawPicker();
+};
+document.addEventListener('pointerup', () => endPkDrag(true));
+document.addEventListener('pointercancel', () => endPkDrag(false));
+
 document.addEventListener('click', async e => {
   const t = e.target.closest('button, [data-goto], .tab-x'); if (!t) return;
 
@@ -1686,6 +1743,7 @@ document.addEventListener('click', async e => {
     const r = +t.dataset.r, c = +t.dataset.c;
     if (pk.mode === 'cell') pk.sel = { r, c };
     else if (pk.tool === 'cell') { const k = r + ',' + c; if (pk.set.has(k)) pk.set.delete(k); else pk.set.add(k); }
+    else if (e.detail !== 0) return;   // 사각형 선택은 드래그(아래 pointer 이벤트)로 처리. 키보드(Enter)로 눌렀을 때만 두 모서리를 차례로 누르는 방식 사용
     else if (!pk.anchor) pk.anchor = { r, c };
     else { addRect(pk.anchor.r, pk.anchor.c, r, c); pk.anchor = null; }
     drawPicker(); return;
@@ -1702,26 +1760,34 @@ document.addEventListener('click', async e => {
       if (!await ask('입력된 모든 학생의 성적을 지울까요?', { title: '성적 지우기', ok: '모두 지우기', danger: true })) break;
       state.students.forEach(x => { delete x.score; }); save(); renderOptions(); toast('성적을 모두 지웠어요.'); break;
     case 'bal-help': openHelp('성적 고르게 편성', `
-      <p>모둠 배치에서 모둠의 성적이 한쪽으로 쏠리지 않게 편성해요. (모둠이 n개일 때)</p>
+      <p>모둠 배치에서 모둠의 성적이 한쪽으로 쏠리지 않게 편성해요.</p>
+      <p><b>예) 모둠 개수가 n일 때</b></p>
       <ul><li>성적 <b>1등~n등</b>은 서로 다른 모둠에 배정해요.</li><li>성적 <b>뒤에서 1등~n등</b>도 서로 다른 모둠에 배정해요.</li><li>나머지 학생은 <b>모둠별 평균의 차이가 작아지도록</b> 배치해요.</li></ul>
-      <p>점수가 높을수록 성적이 좋은 것으로 봐요. 동점이면 무작위로 정해요. 붙이기·떼기·고정석·범위 같은 다른 조건도 함께 지켜요.</p>
+      <p>점수가 높을수록 성적이 좋은 것으로 봐요. 동점이면 무작위로 정해요. 붙이기·떼기·고정석·범위 같은 다른 조건도 함께 지켜요. 남녀 섞어 앉히기와 직전 자리 피하기는 모둠 평균을 해치지 않는 범위에서만 반영해요.</p>
+      <p>모든 학생의 성적이 입력돼 있어야 배치할 수 있어요. 일반 자리 모드에서는 쓰이지 않아요.</p>
       <p>성적은 엑셀(.xlsx, .csv)로 올려요. <b>번호(또는 이름)</b>와 <b>성적</b> 열이 있으면 되고, "양식 받기"로 명단이 채워진 양식을 받을 수 있어요. 올린 성적은 저장 파일과 엑셀 내보내기에 함께 저장돼요.</p>`); break;
     case 'layout-help': openHelp('좌석 배열 — 사용 방법', `
+      <p><b>책상 편집 모드</b></p>
       <ul>
         <li>칸을 누르면 <b>책상 있음/없음(빈칸)</b>이 바뀌어요.</li>
         <li>행·열 머리글을 누르면 그 행·열 전체가 한 번에 바뀌어요.</li>
         <li>책상이 하나도 없는 행·열은 <b>통로</b>로 표시되고 번호에서 빠져요.</li>
+        <li>행·열은 최대 15칸까지 늘릴 수 있어요.</li>
       </ul>
       <p><b>모둠 편집 모드</b></p>
       <ul>
         <li>칸을 <b>더블클릭</b>해서 모둠 번호를 입력해요.</li>
-        <li><b>격자 묶기</b>(가로×세로)나 <b>인원수 묶기</b>(모둠 인원수)로 한꺼번에 묶을 수도 있어요.</li>
+        <li>칸을 <b>오른쪽 클릭</b>하면 그 자리를 지우거나(<b>자리 지우기</b>) 다시 만들 수(<b>자리 추가하기</b>) 있어요.</li>
+        <li><b>격자 묶기</b>(가로×세로)나 <b>인원수 묶기</b>(모둠 인원수)로 한꺼번에 묶을 수도 있어요. 인원수 묶기는 학생 수와 좌석 수가 같을 때만 쓸 수 있어요.</li>
         <li><b>모둠 지우기</b>를 누르면 모든 모둠이 지워져요.</li>
+        <li>모둠 번호가 없는 칸은 혼자만 있는 모둠으로 봐요. 번호는 1, 3처럼 건너뛰어도 돼요.</li>
       </ul>`); break;
     case 'range-help': openHelp('범위 제한 학생 — 사용 방법', `
       <p>범위를 정한 학생은 <b>지정한 구역 안에서만</b> 섞여요.<br>(예: 시력 때문에 앞 두 행)</p>
       <ul>
-        <li><b>구역 선택</b> 버튼으로 구역을 정해요.</li>
+        <li><b>구역 선택</b> 버튼을 눌러 구역을 정해요.</li>
+        <li><b>사각형으로 선택</b> : 모서리 칸을 누른 채 반대편 모서리 칸까지 끌어요.</li>
+        <li><b>한 칸씩 선택</b> : 칸을 하나씩 눌러요. 선택된 칸을 다시 누르면 해제돼요.</li>
         <li>같은 학생에게 구역을 여러 번 추가하면 모두 합쳐서 적용돼요.</li>
         <li>고정석이 있는 학생은 범위를 지정할 수 없어요.</li>
       </ul>`); break;
@@ -1729,10 +1795,11 @@ document.addEventListener('click', async e => {
       <p>반경은 한 학생의 자리를 <b>중심으로 한 정사각형 범위</b>로 잽니다. 두 자리의 행 차이와 열 차이 중 <b>큰 값</b>이 반경 이상이어야 떼어 앉힌 것으로 봐요.</p>
       <ul>
         <li><b>반경 2칸</b> : 바로 옆·앞뒤·대각선에는 앉을 수 없고, 한 칸 건너 앉는 것은 가능해요.</li>
-        <li><b>반경 3칸</b> : 두 칸 이상 떨어져야 해요.</li>
+        <li><b>반경 3칸</b> : 앞, 뒤, 양 옆, 대각선으로 두 칸 이내에는 앉을 수 없어요.</li>
         <li>선택할 수 있는 최댓값은 좌석 배열에 맞춰 자동으로 정해져요.</li>
         <li>통로(책상이 하나도 없는 행·열)는 칸 수에 넣지 않아요.</li>
         <li>모둠 배치에서는 반경 대신 <b>"다른 모둠"</b>이면 떼어 앉힌 것으로 봐요.</li>
+        <li>같은 두 학생을 붙이기와 떼기에 동시에 지정할 수는 없어요.</li>
       </ul>`); break;
     case 'show-warn': { let w = []; try { w = JSON.parse(t.dataset.warn); } catch (e) { /* ignore */ } openHelp('배치 안내', `<ul>${w.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`); break; }
     case 'help-close': $('#helpModal').close(); break;
@@ -1855,7 +1922,7 @@ document.addEventListener('click', async e => {
     }
     case 'pick-range':
       if (!seatCount()) { await notify('먼저 좌석을 만들어 주세요.'); break; }
-      openPicker({ title: '범위 선택', hint: '사각형: 두 모서리를 차례로 누르면 그 안의 칸이 추가돼요. 한 칸씩: 칸을 누르면 선택되고, 다시 누르면 해제돼요.', mode: 'range', initial: pend.range, cb: v => { pend.range = v; renderConstraints(); } }); break;
+      openPicker({ title: '범위 선택', hint: '사각형: 모서리 칸을 누른 채 반대편 모서리 칸까지 끌면 그 안의 칸이 추가돼요.\n한 칸씩: 칸을 누르면 선택되고, 다시 누르면 해제돼요.', mode: 'range', initial: pend.range, cb: v => { pend.range = v; renderConstraints(); } }); break;
     case 'add-range': {
       const s = +$('#rngS').value;
       if (!s || !pend.range) { await notify('학생과 구역을 선택해 주세요.'); break; }
