@@ -470,3 +470,14 @@ h2 .h2-chk{display:inline-flex;margin-left:.6rem;font-size:.9rem;font-weight:400
 .pk.drag{background:var(--brand-soft);border-color:var(--brand)}
 .pk.sel.drag{background:var(--brand);color:#fff}
 .pk-count{margin-left:.6rem;font-size:.9rem;font-weight:400;font-family:var(--font-body);color:var(--muted)}
+
+/* 자리 조작(숨김) 창 */
+#rigModal{width:min(96vw,1100px);max-width:min(96vw,1100px);max-height:92vh}
+#rigModal .rig-body{margin-top:8px}
+#rigModal .rig-body.off{opacity:.45;pointer-events:none;filter:grayscale(.4)}
+#rigModal .hint{margin:6px 0}
+#rigModal label.chk{display:inline-flex;width:fit-content}
+#rigModal .rig-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:6px 0;color:var(--muted,inherit);font-size:.92rem}
+#rigModal .rig-status{color:var(--brand,#7c5cd6);font-weight:600;white-space:nowrap}
+#rigModal .hint{margin:4px 0 0;line-height:1.4}
+#rigModal .rig-line{margin:2px 0 6px;line-height:1.4}

@@ -30,6 +30,7 @@ const defaultState = () => ({
   settings: { mode: 'seat', pairMode: 'side', mix: false, avoidPrev: true, avoidPast: true, showFixed: true, balance: false, sound: true, animation: true, keepHistory: false, historyMax: 10 },
   slots: Array(SLOT_N).fill(null),   // {seats:{id:[r,c]}, warnings:[], at, mode}
   final: null,
+  rig: { on: false, seats: null },   // 숨겨진 자리 조작: 켜져 있으면 Ctrl+배치 때 미리 정한 자리가 그대로 배치됨
   activeSlot: 0,
   showAll: false,
   view: 'student',
@@ -45,6 +46,7 @@ function migrate(o) {
   if (!s.layout.groups) s.layout.groups = {};
   if (!Array.isArray(s.pairHistory)) s.pairHistory = [];
   if (!Array.isArray(s.history)) s.history = [];
+  if (!s.rig || typeof s.rig !== 'object') s.rig = { on: false, seats: null };
   delete s.settings.sepDist;   // 예전 '떼기 기본 반경' 옵션은 제거됨
   s.seps = (s.seps || []).map(p => ({ ...p, d: normSep(p.d) }));
   s.pairs = (s.pairs || []).map(p => ({ ...p, mode: p.mode || s.settings.pairMode }));
@@ -873,10 +875,68 @@ async function playShuffle(applyFn, roots = ['#shuffleArea']) {
   }
 }
 
-async function actShuffle(i) {
+/* ---- 자리 조작(숨김 기능): Ctrl(⌘)을 누른 채 배치하면 미리 정한 자리가 같은 연출로 나타난다. 다른 화면에는 어떤 표시도 하지 않는다 ---- */
+let rigPending = null;
+const seatKeys = () => { const o = []; for (let r = 0; r < state.layout.rows; r++) for (let c = 0; c < state.layout.cols; c++) if (!isOff(r, c)) o.push([r, c]); return o; };
+// 가장 최근 자리(확정된 자리와 임시 저장 중 가장 나중 것). 없으면 null
+function latestSeats() {
+  const cand = [state.final, ...state.slots].filter(x => x && x.seats);
+  if (!cand.length) return null;
+  return cand.reduce((a, b) => ((b.at || 0) > (a.at || 0) ? b : a)).seats;
+}
+// 현재 학생·좌석에 맞게 정리: 유효한 자리는 유지하고, 자리가 없는 학생은 번호순으로 남은 자리에 채운다
+function rigNormalize(src) {
+  const act = actives().slice().sort((a, b) => a.no - b.no), used = new Set(), out = {};
+  for (const st of act) {
+    const q = src && src[st.id];
+    if (q && q[0] < state.layout.rows && q[1] < state.layout.cols && !isOff(q[0], q[1]) && !used.has(q[0] + ',' + q[1])) { out[st.id] = [q[0], q[1]]; used.add(q[0] + ',' + q[1]); }
+  }
+  const free = seatKeys().filter(([r, c]) => !used.has(r + ',' + c));
+  for (const st of act) if (!out[st.id] && free.length) out[st.id] = free.shift();
+  return out;
+}
+function rigRecord() {
+  if (!state.rig.on) return null;
+  const seats = rigNormalize(state.rig.seats);
+  if (actives().some(st => !seats[st.id])) return null;   // 좌석이 모자라면 조작하지 않고 보통 배치
+  return { seats, warnings: [], at: Date.now(), mode: state.settings.mode === 'group' ? 'group' : 'seat', balance: null };
+}
+function renderRig() {
+  const on = state.rig.on;
+  $('#rigOn').checked = on;
+  $('#rigBody').classList.toggle('off', !on);
+  const seats = state.rig.seats || rigNormalize(latestSeats());
+  $('#rigBoard').innerHTML = actives().length
+    ? boardHTML({ seats, mode: state.settings.mode === 'group' ? 'group' : 'seat' }, on ? { edit: { pending: rigPending } } : {})
+    : '<div class="empty-board">학생 명단이 비어 있어요.</div>';
+  const missing = actives().some(st => !seats[st.id]);
+  $('#rigNote').hidden = !missing;
+}
+let rigStTimer = null;
+function rigSaved() {   // 저장 상태 표시: 저장 중... → 저장됨
+  const el = $('#rigStatus'); if (!el) return;
+  clearTimeout(rigStTimer); el.textContent = '저장 중...';
+  rigStTimer = setTimeout(() => (el.textContent = '저장됨'), 450);
+}
+function rigOpen() {
+  clearTimeout(rigStTimer); $('#rigStatus').textContent = '저장됨';
+  rigPending = null;
+  if (state.rig.on) { state.rig.seats = rigNormalize(state.rig.seats); save(); }
+  renderRig(); $('#rigModal').showModal();
+}
+function rigSwap(id) {
+  const d = state.rig.seats; if (!d || !state.rig.on) return;
+  if (rigPending === null) rigPending = id;
+  else if (rigPending === id) rigPending = null;
+  else { const a = d[rigPending], b = d[id]; d[rigPending] = b; d[id] = a; rigPending = null; save(); rigSaved(); }
+  renderRig();
+}
+
+async function actShuffle(i, useRig) {
   if (validate().length) return;
   state.activeSlot = i;
-  playShuffle(() => { state.slots[i] = solve(); }, [`#slotcard-${i}`]);
+  const rigged = useRig ? rigRecord() : null;
+  playShuffle(() => { state.slots[i] = rigged || solve(); }, [`#slotcard-${i}`]);
 }
 async function actFillAll() {
   if (validate().length) return;
@@ -1937,7 +1997,9 @@ document.addEventListener('click', async e => {
       $('#picker').close(); pk.cb(v); break;
     }
 
-    case 'shuffle': actShuffle(idx); break;
+    case 'shuffle': actShuffle(idx, e.ctrlKey || e.metaKey); break;
+    case 'rig-open': if (await modal('배치 옵션', '이 화면을 선생님만 보고 계신가요?', [{ t: '아니오', v: false, esc: true }, { t: '예', v: true, cls: 'primary' }])) rigOpen(); break;
+    case 'rig-close': $('#rigModal').close(); break;
     case 'fill-all': actFillAll(); break;
     case 'clear-slot':
       if (!state.slots[idx]) break;
@@ -1978,9 +2040,12 @@ function swapClick(id) {
   else { const d = ed.draft, a = d[ed.pending], b = d[id]; d[ed.pending] = b; d[id] = a; ed.pending = null; ed.changed = true; }
   renderShuffle();
 }
-document.addEventListener('click', e => { const el = e.target.closest && e.target.closest('.seat[data-swap]'); if (el && editing) swapClick(+el.dataset.swap); });
+document.addEventListener('click', e => { const el = e.target.closest && e.target.closest('.seat[data-swap]'); if (!el) return; if (el.closest('#rigBoard')) rigSwap(+el.dataset.swap); else if (editing) swapClick(+el.dataset.swap); });
 document.addEventListener('keydown', e => {
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.seat[data-swap]') && editing) { e.preventDefault(); swapClick(+e.target.dataset.swap); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.seat[data-swap]')) {
+    if (e.target.closest('#rigBoard')) { e.preventDefault(); rigSwap(+e.target.dataset.swap); }
+    else if (editing) { e.preventDefault(); swapClick(+e.target.dataset.swap); }
+  }
 });
 
 // 입력 변경
@@ -2044,6 +2109,11 @@ document.addEventListener('change', async e => {
   else if (t.id === 'optPast') { state.settings.avoidPast = t.checked; save(); }
   else if (t.id === 'optFixed') { state.settings.showFixed = t.checked; save(); }
   else if (t.id === 'optAnim') { state.settings.animation = t.checked; save(); }
+  else if (t.id === 'rigOn') {
+    state.rig.on = t.checked; rigPending = null;
+    if (t.checked) state.rig.seats = rigNormalize(latestSeats());   // 켜면 가장 최근 자리를 불러온다(없으면 번호순)
+    save(); renderRig(); rigSaved();
+  }
   else if (t.id === 'optSound') { state.settings.sound = t.checked; save(); if (t.checked) SFX.unlock(); }
   else if (t.id === 'optHistory') { state.settings.keepHistory = t.checked; save(); renderHistory(); }
   else if (t.id === 'histMax') {

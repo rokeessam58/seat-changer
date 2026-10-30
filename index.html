@@ -108,7 +108,7 @@
     <!-- 넓은 화면: 왼쪽에 배치 옵션(세로로 길게, 25%), 오른쪽에 조건 카드 2×2 -->
     <div class="opts-layout">
     <div class="card">
-      <h2>배치 옵션</h2>
+      <h2>배치 옵션 <button class="help-btn" data-act="rig-open" aria-label="설명 보기" title="설명 보기">?</button></h2>
       <div class="opts">
         <label class="mode-lbl opt-full"><span class="mode-mark" aria-hidden="true">★★</span> 배치 모드 :
           <select id="optMode">
@@ -273,6 +273,19 @@
   <button class="x-close" data-act="help-close" aria-label="닫기"></button>
   <h3 id="helpTitle"></h3>
   <div id="helpBody"></div>
+</dialog>
+
+<!-- (숨김) 자리 조작 -->
+<dialog id="rigModal" class="modal help">
+  <button class="x-close" data-act="rig-close" aria-label="닫기"></button>
+  <h3>자리 미리 지정하기</h3>
+  <label class="chk"><input id="rigOn" type="checkbox"> 기능 활성화</label>
+  <div id="rigBody" class="rig-body">
+    <p class="hint">Ctrl 키(맥은 Cmd)를 누른 채 자리 배치 버튼을 누르면, 아래 자리가 일반 배치와 똑같은 연출로 나타나요.</p>
+    <div class="rig-line"><span>두 학생을 차례로 눌러 자리를 서로 바꿔요.</span><span id="rigStatus" class="rig-status" aria-live="polite">저장됨</span></div>
+    <p id="rigNote" class="warn-red" hidden>좌석이 모자라서 일부 학생의 자리를 정할 수 없어요. 이 상태에서는 조작이 적용되지 않아요.</p>
+    <div id="rigBoard"></div>
+  </div>
 </dialog>
 
 <!-- 확정 이력 보기 -->
