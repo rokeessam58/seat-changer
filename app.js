@@ -272,7 +272,9 @@ const pend = { fixed: null, range: null };
 function studentOptions(sel, exclude) {
   const list = actives().filter(s => s.id !== exclude);
   if (!list.length) return '<option value="">(학생 없음)</option>';
-  return list.map(s => `<option value="${s.id}" ${String(s.id) === String(sel) ? 'selected' : ''}>${esc(fullLabel(s))}</option>`).join('');
+  // 선택된 학생이 없으면 목록에는 보이지 않는 안내 항목("학생 선택")이 연한 글씨로 표시된다
+  const has = list.some(s => String(s.id) === String(sel));
+  return `<option value="" hidden disabled ${has ? '' : 'selected'}>학생 선택</option>` + list.map(s => `<option value="${s.id}" ${String(s.id) === String(sel) ? 'selected' : ''}>${esc(fullLabel(s))}</option>`).join('');
 }
 // 왼쪽에서 고른 학생은 오른쪽 목록에서 제외
 function fillPairSelects(p) {
@@ -1630,7 +1632,7 @@ function openDropdown(sel) {
   ddSel = sel; ddPop = document.createElement('div');
   ddPop.className = 'dd-pop'; ddPop.setAttribute('role', 'listbox');
   ddPop.style.fontSize = cs.fontSize; ddPop.style.minWidth = r.width + 'px';
-  ddPop.innerHTML = [...sel.options].map((o, i) => `<div class="dd-opt${i === sel.selectedIndex ? ' sel' : ''}${o.disabled ? ' dis' : ''}" role="option" data-i="${i}">${esc(o.textContent)}</div>`).join('');
+  ddPop.innerHTML = [...sel.options].map((o, i) => `<div class="dd-opt${i === sel.selectedIndex ? ' sel' : ''}${o.disabled ? ' dis' : ''}" role="option" data-i="${i}"${o.hidden ? ' hidden' : ''}>${esc(o.textContent)}</div>`).join('');
   host.appendChild(ddPop);
   const ph = ddPop.offsetHeight, below = innerHeight - r.bottom - 8, above = r.top - 8, up = below < Math.min(ph, 180) && above > below;
   ddPop.style.maxHeight = Math.max(80, Math.min(260, up ? above : below)) + 'px';
@@ -1962,6 +1964,7 @@ document.addEventListener('click', async e => {
       if (state.pairs.some(same) || state.seps.some(same)) { await notify('이미 붙이기/떼기에 지정된 조합이에요.'); break; }
       if (k === 'pair') state.pairs.push({ a, b, mode: $('#optPairMode').value });
       else state.seps.push({ a, b, d: normSep($('#sepD').value) });
+      $('#' + k + 'A').dataset.sel = ''; $('#' + k + 'B').dataset.sel = '';   // 추가한 뒤에는 학생 선택을 처음 상태로
       save(); renderConstraints(); break;
     }
     case 'pick-fixed':
@@ -1978,7 +1981,7 @@ document.addEventListener('click', async e => {
 계속할까요?`, { title: '범위 제한이 삭제돼요', ok: '고정석 지정', danger: true })) break;
       state.ranges = state.ranges.filter(g => g.s !== s);
       state.fixed = state.fixed.filter(f => f.s !== s); state.fixed.push({ s, ...pend.fixed });
-      pend.fixed = null; save(); renderConstraints(); break;
+      pend.fixed = null; $('#fixS').value = ''; save(); renderConstraints(); break;
     }
     case 'pick-range':
       if (!seatCount()) { await notify('먼저 좌석을 만들어 주세요.'); break; }
@@ -1987,7 +1990,7 @@ document.addEventListener('click', async e => {
       const s = +$('#rngS').value;
       if (!s || !pend.range) { await notify('학생과 구역을 선택해 주세요.'); break; }
       if (state.fixed.some(f => f.s === s)) { await notify(`${josa(label(byId(s)), '은/는')} 고정석이 있어서 범위를 지정할 수 없어요.`); break; }
-      state.ranges.push({ s, ...pend.range }); pend.range = null; save(); renderConstraints(); break;
+      state.ranges.push({ s, ...pend.range }); pend.range = null; $('#rngS').value = ''; save(); renderConstraints(); break;
     }
     case 'picker-reset': pk.set.clear(); pk.anchor = null; drawPicker(); break;
     case 'picker-cancel': $('#picker').close(); break;

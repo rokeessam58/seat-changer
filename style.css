@@ -481,3 +481,5 @@ h2 .h2-chk{display:inline-flex;margin-left:.6rem;font-size:.9rem;font-weight:400
 #rigModal .rig-status{color:var(--brand,#7c5cd6);font-weight:600;white-space:nowrap}
 #rigModal .hint{margin:4px 0 0;line-height:1.4}
 #rigModal .rig-line{margin:2px 0 6px;line-height:1.4}
+select:has(option[value=""][hidden]:checked){color:var(--muted);opacity:.8}
+.dd-opt[hidden]{display:none}
