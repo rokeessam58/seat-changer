@@ -133,8 +133,8 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 .seats-wrap{width:100%;container-type:inline-size;max-width:calc(var(--units)*125px)}
 .board .seats{--gap:10px;--u:calc((100cqw - (var(--cols) - 1) * var(--gap)) / var(--units));display:grid;grid-template-columns:var(--tcols);grid-template-rows:var(--trows);gap:var(--gap);width:100%}
 .podium{background:#c9baf5;color:#35206e;border-radius:12px;padding:5px 40px;letter-spacing:.25em;font-size:1rem}
-.board .podium{font-size:clamp(.8rem,4.6cqw,1.45rem);padding:.45em 2.4em;border-radius:.7em;letter-spacing:.4em;max-width:100%;white-space:nowrap}   /* 좌석처럼 보드 폭에 따라 커지고 작아짐 */
-.seat{position:relative;min-height:0;border-radius:14px;border:3px solid var(--none-b);background:var(--none);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;min-width:0}
+.board .podium{font-size:clamp(1.05rem,6.2cqw,2.05rem);padding:.45em 2.4em;border-radius:.7em;letter-spacing:.4em;max-width:100%;white-space:nowrap}   /* 좌석처럼 보드 폭에 따라 커지고 작아짐 */
+.seat{container-type:inline-size;position:relative;min-height:0;border-radius:14px;border:3px solid var(--none-b);background:var(--none);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;min-width:0}
 .seat.M{background:var(--male);border-color:var(--male-b)}
 .seat.F{background:var(--female);border-color:var(--female-b)}
 .seat.hasg{border-color:var(--gc)}
@@ -147,8 +147,8 @@ input[type=checkbox]{accent-color:var(--brand);width:17px;height:17px}
 .seat.off{visibility:hidden}
 .seat.vacant{background:#faf7fd;border:3px dashed var(--line)}
 .seat.vacant.hasg{border-color:var(--gc)}
-.seat .no{font-size:.75rem;color:var(--muted);line-height:1}
-.seat .nm{font-size:clamp(.9rem,1.7vw,1.3rem);line-height:1.2;word-break:keep-all;color:#3d3252}
+.seat .no{font-size:clamp(.85rem,1.5vw,1.15rem);color:var(--muted);line-height:1}
+.seat .nm{--fs:clamp(1.1rem,2.5vw,1.9rem);font-size:min(var(--fs),calc((100cqw - 4px) / (var(--n,4) * .8)));max-width:100%;white-space:nowrap;line-height:1.2;word-break:keep-all;color:#3d3252}
 .seat .pin{position:absolute;top:2px;right:4px;font-size:.66rem;font-style:normal;color:#9a5b00;background:#ffeab8;border-radius:6px;padding:0 5px}
 .seat .grp{position:absolute;bottom:2px;left:4px;font-size:.66rem;font-style:normal;color:#fff;background:var(--gc);border-radius:6px;padding:0 5px;font-family:var(--font-cute)}
 .seat.lock{animation:pop .45s ease}

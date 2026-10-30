@@ -670,7 +670,7 @@ function boardHTML(rec, { mini = false, edit = null } = {}) {
     const sw = edit ? `data-swap="${s.id}" role="button" tabindex="0"` : '', pre = edit && edit.pending === s.id ? 'swap-pre' : '';
     const dot = g && (s.gender === 'M' || s.gender === 'F') ? `<i class="gdot ${s.gender}"></i>` : '';
     cells += `<div class="seat ${g ? 'gcolor' : s.gender} ${s.gender} ${gcls} ${pre}" ${gs} ${sw} data-sid="${s.id}" data-name="${esc(label(s))}" data-no="${esc(s.no)}">
-      <span class="no">${esc(s.no)}</span><span class="nm">${esc(label(s))}</span>${dot}${state.settings.showFixed !== false && fixedIds.has(s.id) ? '<i class="pin">고정</i>' : ''}${gb}</div>`;
+      <span class="no">${esc(s.no)}</span><span class="nm" style="--n:${Math.max(4, [...label(s)].length)}">${esc(label(s))}</span>${dot}${state.settings.showFixed !== false && fixedIds.has(s.id) ? '<i class="pin">고정</i>' : ''}${gb}</div>`;
   }
   const D = dims();
   const units = Math.max(1, cs.reduce((u, c) => u + (D.aisleCols[c] ? 0.5 : 1), 0));
